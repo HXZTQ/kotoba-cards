@@ -1,0 +1,9 @@
+{
+ "version": "default",
+ "newPerDay": 150,
+ "stopNewAfter": "2026-12-03",
+ "nextPacks": [],
+ "boost": [],
+ "slow": [],
+ "note": "默认调整文件，build 生成"
+}

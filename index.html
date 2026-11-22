@@ -1,0 +1,1225 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>单词闪卡</title>
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#f5f4f0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111315" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="闪卡">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-180.png">
+<style>
+:root{
+  --bg:#f5f4f0;--card:#ffffff;--fg:#17181a;--sub:#6b6f76;--line:#e2e0da;
+  --acc:#2f4fd0;--acc-fg:#ffffff;--yes:#1f8a4c;--no:#d9480f;--warn-bg:#fff3bf;--warn-fg:#5c4400;
+  --chip:#eef0f6;--hint:#f3f0e4;--bgimg:url("bg-light.jpg");
+  --jp:"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Noto Sans CJK JP","Yu Gothic","Meiryo",sans-serif;
+  --ui:-apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans SC","Microsoft YaHei",sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root{--bg:#111315;--card:#1c1f23;--fg:#f2f1ed;--sub:#9aa0a8;--line:#2c3036;
+    --acc:#7c96ff;--acc-fg:#0d1020;--yes:#2f9e5b;--no:#e8622c;--warn-bg:#4a3b00;--warn-fg:#ffe9a8;
+    --chip:#272b31;--hint:#25241d;--bgimg:url("bg-dark.jpg");}
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:var(--ui);
+  -webkit-text-size-adjust:100%;overscroll-behavior:none}
+body{touch-action:manipulation;background:transparent}
+/* 11-22 和纸樱花背景（先生选 A）：固定铺满，iOS 不认 background-attachment:fixed，用伪元素 */
+body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:var(--bg) var(--bgimg) center top/cover no-repeat}
+button{font:inherit;color:inherit;border:0;background:none;padding:0;cursor:pointer;touch-action:manipulation}
+.scr{display:none;position:fixed;inset:0;flex-direction:column;
+  padding:calc(env(safe-area-inset-top) + 12px) 18px calc(env(safe-area-inset-bottom) + 14px);
+  max-width:520px;margin:0 auto}
+.scr.on{display:flex}
+#banner{display:none;position:fixed;z-index:50;left:0;right:0;top:0;background:#c92a2a;color:#fff;
+  font-size:14px;line-height:1.4;padding:calc(env(safe-area-inset-top) + 8px) 14px 8px;text-align:center}
+#banner.on{display:block}
+#banner button{margin-left:10px;padding:4px 14px;border:1px solid #fff;border-radius:8px;font-size:14px}
+button:disabled{opacity:.4}
+/* 通用 */
+.center{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center}
+.h1{font-size:26px;font-weight:700;margin:0 0 10px}
+.h2{font-size:22px;font-weight:700;margin:0 0 8px}
+.p{font-size:17px;line-height:1.65;color:var(--sub);margin:6px 0}
+.p b{color:var(--fg)}
+.big{display:block;width:100%;border-radius:18px;padding:22px 20px;text-align:left;
+  background:var(--card);border:1px solid var(--line);margin-top:14px}
+.big.pri{background:var(--acc);color:var(--acc-fg);border-color:transparent}
+.big .t{font-size:26px;font-weight:700;letter-spacing:.02em}
+.big .s{font-size:15px;opacity:.82;margin-top:6px}
+.big:active,.btn:active,.lnk:active{opacity:.7}
+.btn{display:block;width:100%;border-radius:16px;padding:18px 10px;font-size:21px;font-weight:700;
+  background:var(--acc);color:var(--acc-fg);text-align:center}
+.btn.ghost{background:var(--card);color:var(--fg);border:1px solid var(--line)}
+.lnk{font-size:15px;color:var(--sub);text-decoration:underline;padding:12px 8px}
+.top{display:flex;align-items:center;justify-content:space-between;min-height:40px;font-size:15px;color:var(--sub)}
+.top .x{font-size:15px;color:var(--sub);padding:8px 4px 8px 20px}
+.note{font-size:14px;line-height:1.5;border-radius:12px;padding:10px 12px;background:var(--warn-bg);color:var(--warn-fg);
+  margin-top:10px;display:flex;gap:8px;align-items:flex-start}
+.note span{flex:1}.note button{font-size:20px;line-height:1;flex:none;min-width:44px;min-height:44px;margin:-10px -10px -10px 0;
+  display:flex;align-items:center;justify-content:center}
+/* 首页 */
+#s-home .title{font-size:22px;font-weight:700;margin:10px 0 14px}
+.stats{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 16px;font-size:16px;line-height:1.9}
+.stats b{font-size:22px;font-variant-numeric:tabular-nums}
+.stats small{color:var(--sub);font-size:14px}
+.foot{margin-top:auto}
+.foot .row{display:flex;gap:10px}
+.foot .row button{flex:1;border-radius:14px;padding:14px 4px;font-size:16px;font-weight:600;background:var(--card);border:1px solid var(--line)}
+.foot .ver{font-size:11px;color:var(--sub);text-align:center;margin-top:10px;opacity:.75}
+.foot .due{font-size:13px;color:var(--sub);margin:0 2px 8px}
+/* 快闪 */
+#s-flash{user-select:none;-webkit-user-select:none}
+.card{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
+  background:var(--card);border:1px solid var(--line);border-radius:22px;margin:6px 0 12px;padding:20px 14px;min-height:0}
+.word{font-family:var(--jp);font-weight:700;line-height:1.25;word-break:break-all;font-size:64px}
+.word.l2{font-size:52px}.word.l3{font-size:40px}.word.l4{font-size:30px}
+.back{margin-top:22px;min-height:150px;visibility:hidden}
+.back.on{visibility:visible}
+.back .rd{font-family:var(--jp);font-size:30px;font-weight:600;color:var(--acc)}
+.back .ps{font-size:15px;color:var(--sub);margin-top:8px}
+.back .m1{font-size:28px;font-weight:700;margin-top:10px;line-height:1.3}
+.bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden;margin-bottom:12px}
+.bar i{display:block;height:100%;width:100%;background:var(--acc);transform-origin:left center;transform:scaleX(0)}
+.bar i.run{animation:bar linear forwards}
+.bar i.full{transform:scaleX(1);opacity:.35}
+.bar i.miss{background:var(--no);transform:scaleX(1);animation:barmiss linear forwards}
+@keyframes barmiss{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+@keyframes bar{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.ans{display:flex;gap:12px}
+.ans .btn{padding:26px 6px;font-size:24px;border-radius:18px}
+.ans .n{background:var(--no);color:#fff}.ans .y{background:var(--yes);color:#fff}
+.ans.off .btn{opacity:.28}
+/* 详卡 */
+.scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;min-height:0;margin:6px -4px 12px;padding:0 4px}
+.d-word{font-family:var(--jp);font-size:44px;font-weight:700;line-height:1.25;word-break:break-all;margin-top:6px}
+.d-read{font-family:var(--jp);font-size:24px;color:var(--acc);font-weight:600;margin-top:6px}
+.d-read small{font-size:18px;color:var(--sub);font-weight:400;margin-left:8px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.chip{font-size:14px;border-radius:999px;padding:4px 12px;background:var(--chip);color:var(--sub)}
+.chip.hot{background:var(--no);color:#fff;font-weight:600}
+.d-m{font-size:22px;font-weight:600;line-height:1.5;margin-top:14px}
+.d-sec{border-top:1px solid var(--line);margin-top:14px;padding-top:12px}
+.d-ex{font-family:var(--jp);font-size:19px;line-height:1.6}
+.d-zh{font-size:15px;color:var(--sub);line-height:1.5;margin-bottom:8px}
+.d-rel{font-family:var(--jp);font-size:16px;line-height:1.7}
+.d-hint{background:var(--hint);border-radius:12px;padding:12px 14px;font-size:16px;line-height:1.65;margin-top:14px}
+.d-hint:before{content:"记法　";color:var(--sub);font-size:13px}
+/* 小结 */
+.sum{display:flex;gap:10px;margin:8px 0 6px}
+.sum div{flex:1;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 6px;text-align:center;font-size:13px;color:var(--sub)}
+.sum b{display:block;font-size:28px;color:var(--fg);font-variant-numeric:tabular-nums}
+.miss{display:flex;width:100%;align-items:baseline;gap:10px;padding:13px 4px;border-bottom:1px solid var(--line);text-align:left}
+.miss .w{font-family:var(--jp);font-size:20px;font-weight:600;flex:none;max-width:55%}
+.miss .m{font-size:15px;color:var(--sub);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.miss:after{content:"›";color:var(--sub)}
+.sub{font-size:14px;color:var(--sub);margin:12px 2px 2px}
+/* 弹层 */
+#modal{display:none;position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.45);align-items:flex-end;justify-content:center}
+#modal.on{display:flex}
+#modal .sheet{background:var(--bg);width:100%;max-width:520px;max-height:88%;border-radius:22px 22px 0 0;
+  padding:16px 18px calc(env(safe-area-inset-bottom) + 16px);display:flex;flex-direction:column}
+#modal .body{overflow-y:auto;-webkit-overflow-scrolling:touch;min-height:0;flex:1}
+#modal .btn{margin-top:10px;padding:15px 10px;font-size:18px}
+textarea,input[type=text]{width:100%;font:inherit;font-size:18px;color:var(--fg);background:var(--card);
+  border:1px solid var(--line);border-radius:14px;padding:14px}
+textarea{font-size:12px;height:110px;font-family:ui-monospace,Menlo,monospace}
+.err{color:var(--no);font-size:15px;min-height:22px;margin:8px 0}
+.ok{color:var(--yes)}
+.steps{text-align:left;font-size:18px;line-height:1.9;margin:14px 0;padding:14px 18px;background:var(--card);border:1px solid var(--line);border-radius:16px}
+</style>
+</head>
+<body>
+<div id="banner"></div>
+
+<section id="s-load" class="scr on"><div class="center"><p class="p" id="load-msg">正在打开…</p></div></section>
+
+<section id="s-wx" class="scr"><div class="center">
+  <div class="h1">请用浏览器打开</div>
+  <p class="p">点右上角 <b>···</b>，选<b>「在浏览器打开」</b>。</p>
+  <p class="p">微信里打开会丢学习记录，所以这里不能用。</p>
+</div></section>
+
+<section id="s-guide" class="scr"><div class="center">
+  <div class="h1">先加到主屏幕</div>
+  <div class="steps">1. 点底部的<b>「分享」</b>按钮（方框加向上箭头）<br>2. 选<b>「添加到主屏幕」</b><br>3. 以后都从主屏幕的<b>「闪卡」图标</b>打开</div>
+  <p class="p">从图标打开，记录才不会丢。</p>
+  <button class="lnk" id="guide-skip">先在浏览器里用</button>
+</div></section>
+
+<section id="s-lock" class="scr"><div class="center" style="align-items:stretch">
+  <div class="h1">输入口令</div>
+  <p class="p">老师给的口令，这台手机只用输一次。</p>
+  <input id="pw" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="口令" style="margin-top:14px">
+  <div class="err" id="pw-err"></div>
+  <button class="btn" id="pw-ok">进入</button>
+</div></section>
+
+<section id="s-home" class="scr">
+  <div class="title">单词闪卡</div>
+  <div class="stats">
+    今天快闪 <b id="h-fr">0</b> 轮 · <b id="h-fc">0</b> 张<br>
+    新词 今天学了 <b id="h-nl">0</b> / 共 <b id="h-nt">0</b> 个 <small id="h-all"></small>
+  </div>
+  <div class="note" id="h-ios" hidden><span>现在是在浏览器里打开的。这里的记录和主屏幕「闪卡」图标里的是分开的两份，请固定用一边。</span></div>
+  <div class="note" id="h-and" hidden><span>建议：浏览器菜单 → 「添加到主屏幕」，以后从图标打开。</span><button id="h-and-x">×</button></div>
+  <button class="big pri" id="h-flash"><div class="t">快闪复习</div><div class="s" id="h-flash-s"></div></button>
+  <button class="big" id="h-learn"><div class="t">学新词</div><div class="s" id="h-learn-s"></div></button>
+  <div class="foot">
+    <div class="due" id="h-unsent"></div>
+    <div class="row"><button id="h-inc">交记录</button><button id="h-full">完整备份</button><button id="h-imp">导入</button></div>
+    <div class="ver" id="h-ver"></div>
+  </div>
+</section>
+
+<section id="s-flash" class="scr">
+  <div class="top"><span id="f-pos"></span><button class="x" id="f-exit">退出</button></div>
+  <div class="card" id="f-card">
+    <div class="word" id="f-word"></div>
+    <div class="back" id="f-back"><div class="rd" id="f-rd"></div><div class="ps" id="f-ps"></div><div class="m1" id="f-m1"></div></div>
+  </div>
+  <div class="bar"><i id="f-bar"></i></div>
+  <div class="ans off" id="f-ans"><button class="btn n" id="f-n">不认识</button><button class="btn y" id="f-y">认识</button></div>
+</section>
+
+<section id="s-result" class="scr">
+  <div class="top"><span>这一轮</span><button class="x" id="r-home">回首页</button></div>
+  <div class="sum"><div><b id="r-cards">0</b>张</div><div><b id="r-y">0</b>认识</div><div><b id="r-n">0</b>不认识</div></div>
+  <div class="sub" id="r-sub"></div>
+  <div class="scroll" id="r-list"></div>
+  <button class="btn" id="r-again">再来一轮</button>
+</section>
+
+<section id="s-pause" class="scr"><div class="center">
+  <div class="h1">暂停了</div>
+  <p class="p">连着 3 张没点，先停一下。</p>
+  <button class="btn" id="p-go" style="margin-top:22px">继续</button>
+  <button class="lnk" id="p-exit">结束这一轮</button>
+</div></section>
+
+<section id="s-learn" class="scr">
+  <div class="top"><span id="l-pos"></span><button class="x" id="l-exit">退出</button></div>
+  <div class="scroll" id="l-body"></div>
+  <button class="btn" id="l-next">下一个</button>
+</section>
+
+<section id="s-qdone" class="scr"><div class="center">
+  <div class="h1" id="qd-msg"></div>
+  <button class="btn" id="qd-go" style="margin-top:22px">继续</button>
+</div></section>
+
+<section id="s-ldone" class="scr"><div class="center">
+  <div class="h1" id="ld-title">今天的新词学完了</div>
+  <p class="p" id="ld-msg"></p>
+  <button class="btn" id="ld-flash" style="margin-top:22px">去快闪复习</button>
+  <button class="lnk" id="ld-home">回首页</button>
+</div></section>
+
+<div id="modal"><div class="sheet"><div class="body" id="m-body"></div><div id="m-foot"></div></div></div>
+
+<script id="core">
+/* ===== 纯逻辑（不碰页面）。test/ 下的 node 测试直接取这一段来跑 ===== */
+(function (root) {
+'use strict';
+
+/* 所有可调参数集中在这里（接口约定第 5 节） */
+const CONFIG = {
+  setSize: 250,             // 每天固定词组几个（adjust.json 的 setSize 可覆盖；当天生成后不变）
+  quotaRecent: 150,         // 词组里「上次以来学的新词」最多几个（以下四项 adjust.json 同名字段可覆盖）
+  quotaMiss: 40,            // 「上次最后不认识的」最多几个（按 tier、score 取，新旧词都算）
+  dueMin: 30,               // 「boost＋到期的」至少留几个（boost 最先，再没选进的上次不认识，再按过期天数×tier 权重）
+  freshMin: 30,             // 没碰过的 seen 至少留几个
+  setSizeRange: [100, 400], // adjust.json 的 setSize 限在这个范围
+  newPerDayMax: 300,        // adjust.json 的 newPerDay 限 0〜这个数（0＝不给默认新词）
+  packMax: 300,             // adjust.json 的一个新词包最多取几个
+  pauseAfter: 3,            // 连续几张翻面超时就暂停本轮
+  roundSize: 50,            // 一轮几张，从当天词组里按「遍」往下取
+  flipMs: 3000,             // 出词后几毫秒自动翻面
+  autoMissMs: 2000,         // 翻面后几毫秒不点，自动记「不认识」（事件加 timeout: true）
+  autoMissQuiz: true,       // 学新词的小测（同一张卡面）也自动记不认识
+  boxMax: 5,                // 熟度格 0〜5
+  dayInterval: [1, 1, 2, 4, 7, 12], // 各格隔几天到期（格 0 = 明天；格 0 的词第二天本来就全进词组）
+  tierInterval: { 1: 0.75, 2: 1, 3: 1 }, // 各档间隔乘几（向上取整，至少 1 天）
+  tierWeight: { 1: 3, 2: 2, 3: 1 },      // 选词组时到期词的排序：过期天数 × 这个权重，大的先进
+  tier1Front: 0.75,         // 每遍洗牌时 tier1 的随机键乘这个数（越小越靠前；0.75 时 tier1 平均位置约在前 40%）
+  groupSize: 10,            // 学新词每组几个，组后小测
+  quizSumMs: 1000,          // 小测一组答完，「这组 7/10 认识」停几毫秒自动往下走
+  newPerDay: 150,           // adjust.json 没写时每天新词数
+  boostFactor: 0.5,         // boost 的词间隔打几折
+  slowFactor: 2,            // slow 的词间隔乘几
+  shufflePack: true,        // 每天新词包取出后洗牌
+  tapGuardMs: 200,          // 出词后这么多毫秒内的点按不算提前翻（防连点）
+  learnGuardMs: 400,        // 详卡出来后这么多毫秒内「下一个」不响应（防连点）
+  adjustTimeoutMs: 3000,    // 进首页前拉 adjust.json 最多等多久，超时用上次存的
+  pbkdf2Iter: 200000
+};
+
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+function shuffle(arr, rng) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const t = a[i]; a[i] = a[j]; a[j] = t;
+  }
+  return a;
+}
+const pad = n => String(n).padStart(2, '0');
+function localDate(t) { const d = new Date(t); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+function fileStamp(t) { const d = new Date(t); return pad(d.getMonth() + 1) + pad(d.getDate()) + '_' + pad(d.getHours()) + pad(d.getMinutes()); }
+function dayNum(t) { const d = new Date(t); return Math.round(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000); } // 本地日期的天序号
+const clone = o => JSON.parse(JSON.stringify(o));
+function randomId() {
+  let s = '';
+  for (let i = 0; i < 10; i++) s += 'abcdefghijkmnpqrstuvwxyz23456789'[Math.floor(Math.random() * 32)];
+  return s;
+}
+
+/* devStart / ridStart：这台（这个 device id）的第一条事件 seq、第一条 round rid。导入后换新 device，
+   比它小的是导入进来的旧记录，属于原来的 device，不再导出。exported：老师确认收到（她点了「我已经存好了」）到哪。 */
+function newState(device) {
+  return { device: device || randomId(), round: 0, seq: 0, rid: 0, learned: [], packs: {}, days: {}, set: null,
+    exported: { seq: 0, rid: 0 }, devStart: 1, ridStart: 1, open: null };
+}
+
+/* 校验 adjust.json：数不对的用默认，超范围的夹到范围里；新词包里的 id 在 pickPack 里再按词表过一遍 */
+function normAdjust(a) {
+  a = a && typeof a === 'object' ? a : {};
+  const clampN = (v, lo, hi, d) => { const x = Number(v); return v != null && v !== '' && typeof v !== 'boolean' && Number.isFinite(x) ? Math.min(hi, Math.max(lo, Math.floor(x))) : d; };
+  const num = k => clampN(a[k], 0, 1e6, CONFIG[k]);
+  return {
+    version: a.version || '',
+    newPerDay: clampN(a.newPerDay, 0, CONFIG.newPerDayMax, CONFIG.newPerDay),
+    setSize: clampN(a.setSize, CONFIG.setSizeRange[0], CONFIG.setSizeRange[1], CONFIG.setSize),
+    quotaRecent: num('quotaRecent'), quotaMiss: num('quotaMiss'), dueMin: clampN(a.dueMin != null ? a.dueMin : a.quotaDue, 0, 1e6, CONFIG.dueMin),
+    freshMin: num('freshMin'),
+    stopNewAfter: typeof a.stopNewAfter === 'string' ? a.stopNewAfter : '',
+    nextPacks: Array.isArray(a.nextPacks) ? a.nextPacks.filter(Array.isArray) : [],
+    boost: new Set(Array.isArray(a.boost) ? a.boost.map(String) : []),
+    slow: new Set(Array.isArray(a.slow) ? a.slow.map(String) : [])
+  };
+}
+
+/* boxes 的第二格存「到期日」（本地日期天序号，dayNum），一律按原间隔算；档位、boost、slow 在选词时才折算，
+   改参数或 adjust.json 立刻生效。旧版存的是轮号（很小的数），读进来等于早就到期，不用迁移。 */
+function effDue(entry, w, adj) {
+  const b = entry[0], d = entry[1];
+  if (b === 0) return d;
+  const iv = CONFIG.dayInterval[b];
+  let f = CONFIG.tierInterval[w.tier] || 1;
+  if (adj.boost.has(w.id)) f *= CONFIG.boostFactor;
+  else if (adj.slow.has(w.id)) f *= CONFIG.slowFactor;
+  return d - iv + Math.max(1, Math.ceil(iv * f - 1e-9));
+}
+
+/* 第 D 天的固定词组（接口约定第 5 节，11-22 定名额）。recent＝上次词组以来学过的新词，prevMiss＝上次词组里最后一次点「不认识」的词。
+   名额：recent 全进（≤quotaRecent，多的按 tier、score 截，截下的按到期词排）；prevMiss ≤quotaMiss（按 tier、score）；
+   boost＋到期 至少 dueMin（boost 最先，再没选进的 prevMiss，再按 过期天数×tier 权重）；没碰过的 seen 至少 freshMin。
+   空位先给到期块，再给没碰过的 seen，最后给离到期最近的。没学过的新词不进。返回 { ids, comp }。 */
+function buildDaySet(words, boxes, adj, learnedSet, D, recent, prevMiss) {
+  const N = adj.setSize;
+  const byTS = (a, b) => (a.tier - b.tier) || (b.score - a.score) || (a.id < b.id ? -1 : 1);
+  const ok = w => w.pool !== 'new' || learnedSet.has(w.id);
+  const byId = new Map(words.map(w => [w.id, w]));
+  const take = new Set(), out = [];
+  const comp = { recent: 0, miss: 0, due: 0, fresh: 0, near: 0 };
+  const add = (w, k) => { if (out.length >= N || take.has(w.id)) return false; take.add(w.id); out.push(w.id); comp[k]++; return true; };
+  const tagged = new Set();
+  const listOf = ids => { const r = [], s = new Set(); for (const id of ids) { const w = byId.get(id); if (w && ok(w) && !tagged.has(id) && !s.has(id)) { s.add(id); r.push(w); } } return r.sort(byTS); };
+  const recIn = listOf(recent).slice(0, adj.quotaRecent); // 超出的不打标，下面按到期词排
+  for (const w of recIn) tagged.add(w.id);
+  const mis = listOf(prevMiss);
+  for (const w of mis) tagged.add(w.id);
+  const misIn = mis.slice(0, adj.quotaMiss), misLeft = mis.slice(adj.quotaMiss);
+  const boost = [], due = [], fresh = [], near = [];
+  for (const w of words) {
+    if (!ok(w) || tagged.has(w.id)) continue;
+    const e = boxes[w.id];
+    if (adj.boost.has(w.id)) { boost.push(w); continue; }
+    if (!e) { if (w.pool !== 'new') fresh.push(w); continue; }
+    const ed = effDue(e, w, adj);
+    if (ed <= D) due.push({ w, u: (D - ed + 1) * (CONFIG.tierWeight[w.tier] || 1) });
+    else near.push({ w, ed });
+  }
+  boost.sort(byTS); fresh.sort(byTS);
+  due.sort((a, b) => (b.u - a.u) || byTS(a.w, b.w));
+  near.sort((a, b) => (a.ed - b.ed) || byTS(a.w, b.w));
+  const dueList = boost.concat(misLeft, due.map(x => x.w)); // 到期块的排队顺序
+  const resFresh = Math.min(adj.freshMin, fresh.length), resDue = Math.min(adj.dueMin, dueList.length);
+  const spill = [];
+  const capped = (list, cap, k, budget) => { let n = 0; for (const w of list) { if (n < cap && out.length < budget && add(w, k)) n++; else spill.push(w); } };
+  capped(recIn, Infinity, 'recent', N - resFresh - resDue);  // 先给到期块、没碰过的 seen 留够
+  capped(misIn, Infinity, 'miss', N - resFresh - resDue);
+  for (const w of dueList.concat(spill)) { if (out.length >= N - resFresh) break; add(w, 'due'); }
+  for (const w of fresh) add(w, 'fresh');
+  for (const w of dueList.concat(spill)) add(w, 'due');   // 没碰过的 seen 不够时，还空的位给到期块剩下的
+  for (const it of near) add(it.w, 'near');
+  return { ids: out, comp };
+}
+
+/* 一遍的顺序：整体洗牌，tier1 的随机键乘 tier1Front，平均更靠前 */
+function passOrder(ids, byId, rng) {
+  return ids.map(id => { const w = byId.get(id); return { id, k: rng() * (w && w.tier === 1 ? CONFIG.tier1Front : 1) }; })
+    .sort((a, b) => a.k - b.k).map(x => x.id);
+}
+
+/* 今天的新词包：adjust 的包优先（只留 pool=new、没学过、词表里有的，最多 packMax 个），剩的不满 newPerDay 用默认取法补满；
+   默认取法＝没学过的新词按 tier、score 取 newPerDay 个。newPerDay 为 0 时只给 adjust 的包，没有包就算停了。 */
+function pickPack(words, byId, learnedSet, adj, today, rng) {
+  if (adj.stopNewAfter && today > adj.stopNewAfter) return { status: 'stopped' };
+  const okNew = id => { const w = byId.get(id); return !!w && w.pool === 'new' && !learnedSet.has(id); };
+  let ids = [], src = '';
+  for (let i = 0; i < adj.nextPacks.length; i++) {
+    const seen = new Set();
+    const left = adj.nextPacks[i].map(String).filter(id => okNew(id) && !seen.has(id) && seen.add(id)).slice(0, CONFIG.packMax);
+    if (left.length) { ids = left; src = 'adjust#' + i; break; }
+  }
+  if (ids.length < adj.newPerDay) {
+    const have = new Set(ids);
+    const more = words.filter(w => w.pool === 'new' && !learnedSet.has(w.id) && !have.has(w.id))
+      .sort((a, b) => (a.tier - b.tier) || (b.score - a.score) || (a.id < b.id ? -1 : 1))
+      .slice(0, adj.newPerDay - ids.length).map(w => w.id);
+    if (more.length) { ids = ids.concat(more); src = src ? src + '+default' : 'default'; }
+  }
+  if (!ids.length) return { status: adj.newPerDay === 0 ? 'stopped' : 'empty' };
+  if (CONFIG.shufflePack) ids = shuffle(ids, rng);
+  return { status: 'ok', ids, src };
+}
+
+/* 内存存储：测试用，也是 IndexedDB 不能用时的退路。接口和页面里的 IdbStore 一样 */
+class MemStore {
+  constructor() { this.ev = []; this.rd = []; this.boxes = {}; this.state = null; this.kv = {}; }
+  async load() { return clone({ state: this.state, boxes: this.boxes }); }
+  async write(w) {
+    w = clone(w);
+    if (w.events) this.ev.push(...w.events);
+    if (w.rounds) this.rd.push(...w.rounds);
+    if (w.boxes) Object.assign(this.boxes, w.boxes);
+    if (w.state) this.state = w.state;
+  }
+  async events(from) { return clone(this.ev.filter(e => e.seq >= from)); }
+  async rounds(from) { return clone(this.rd.filter(r => r.rid >= from)); }
+  async replaceAll(s) { s = clone(s); this.ev = s.events; this.rd = s.rounds; this.boxes = s.boxes; this.state = s.state; }
+  async kvGet(k) { return k in this.kv ? clone(this.kv[k]) : null; }
+  async kvSet(k, v) { this.kv[k] = clone(v); }
+}
+
+class Engine {
+  constructor(store, opts) {
+    opts = opts || {};
+    this.store = store;
+    this.now = opts.now || (() => Date.now());
+    this.rng = opts.rng || Math.random;
+    this.onError = opts.onError || (() => {});
+    this.words = []; this.byId = new Map(); this.wordsVersion = '';
+    this.adj = normAdjust(null);
+    this.S = null; this.boxes = {}; this.learnedSet = new Set();
+    this.tail = Promise.resolve();
+    this.pending = []; this.bad = false; // 还没写进存储的（按顺序）；写失败就停在那条，等 retry()
+  }
+  async init() {
+    const snap = await this.store.load();
+    this.S = Object.assign(newState(), snap.state || {});
+    const ex = this.S.exported || {};
+    this.S.exported = { seq: ex.seq || 0, rid: ex.rid || 0 };
+    this.boxes = snap.boxes || {};
+    this.learnedSet = new Set(this.S.learned);
+    if (this.S.open) this._closeOpen(this.S.open.last || this.S.open.start); // 上次没正常退出的那一轮补记
+    else if (!snap.state) this._commit({ state: this.S });
+    await this.flush();
+  }
+  setWords(json) {
+    this.words = json.words || []; this.wordsVersion = json.version || '';
+    this.byId = new Map(this.words.map(w => [w.id, w]));
+  }
+  setAdjust(a) { this.adj = normAdjust(a); }
+  flush() { return this.tail; }
+  /* 写存储：排队按顺序写；一条写失败就停住（这条和后面的都留在 pending 里，不跳过），报 onError，等 retry() */
+  _commit(w) { this.pending.push(w); if (!this.bad) this._drain(); }
+  _drain() {
+    this.tail = this.tail.then(async () => {
+      while (this.pending.length && !this.bad) {
+        try { await this.store.write(this.pending[0]); this.pending.shift(); }
+        catch (e) { this.bad = true; this.onError(e); }
+      }
+    });
+  }
+  async retry() { // 返回是否全部写进去了
+    await this.flush();
+    if (this.bad) { this.bad = false; this._drain(); await this.flush(); }
+    return !this.bad;
+  }
+  _pendingOf(k, key, from) { const r = []; for (const w of this.pending) if (w[k]) for (const x of w[k]) if (x[key] >= from) r.push(x); return r; }
+  async _list(kind, from) { // 存储里的＋还没写进去的，按序号合并（存储读不出来时只给内存里的）
+    const k = kind === 'events' ? 'seq' : 'rid';
+    let a = [];
+    try { a = await this.store[kind](from); } catch (e) { this.onError(e); }
+    const m = new Map(a.map(x => [x[k], x]));
+    for (const x of this._pendingOf(kind, k, from)) m.set(x[k], clone(x));
+    return [...m.values()].sort((x, y) => x[k] - y[k]);
+  }
+  _day(t) { const k = localDate(t); return this.S.days[k] || (this.S.days[k] = { fr: 0, fc: 0, nl: 0 }); }
+  today() { const k = localDate(this.now()); return Object.assign({ fr: 0, fc: 0, nl: 0, date: k }, this.S.days[k]); }
+  _closeOpen(end) {
+    const o = this.S.open, w = { state: this.S };
+    this.S.open = null;
+    if (o) {
+      if (o.cards > 0) {
+        const rec = { rid: ++this.S.rid, round: o.round, mode: o.mode, start: o.start, end: end, cards: o.cards };
+        w.rounds = [rec];
+        if (o.mode === 'flash') this._day(o.start).fr++;
+      } else if (o.mode === 'flash' && o.round === this.S.round) {
+        this.S.round--; // 一张没点就退出：不算一轮
+      }
+    }
+    this._commit(w);
+  }
+  _event(mode, id, res, tm, box) {
+    const t = this.now();
+    const ev = { seq: ++this.S.seq, t: t, mode: mode, round: this.S.round, id: id, res: res };
+    if (mode !== 'learn') { ev.early = !!tm.early; ev.flipMs = Math.round(tm.flipMs || 0); }
+    ev.ansMs = Math.round(tm.ansMs || 0);
+    ev.box = box;
+    if (tm.timeout) ev.timeout = true; // 翻面后 autoMissMs 没点，自动记的不认识
+    if (this.S.open) { this.S.open.cards++; this.S.open.last = t; }
+    return ev;
+  }
+  dueCount() { // 已学的词里今天到期的（含格 0），模拟和分析用
+    const D = dayNum(this.now()); let n = 0;
+    for (const w of this.words) { const e = this.boxes[w.id]; if (e && effDue(e, w, this.adj) <= D) n++; }
+    return n;
+  }
+
+  /* ---- 每天的固定词组 ---- */
+  daySet() { // 今天的词组：没有就现在生成（首页一打开就调用），当天不变
+    const t = this.now(), date = localDate(t), old = this.S.set;
+    if (old && old.date === date) return old;
+    const prevDate = old ? old.date : localDate(t - 86400000);
+    const recent = [];
+    for (const d of Object.keys(this.S.packs).sort()) {
+      if (d < prevDate || d >= date) continue;
+      for (const id of this.S.packs[d].ids) if (this.learnedSet.has(id)) recent.push(id);
+    }
+    const r = buildDaySet(this.words, this.boxes, this.adj, this.learnedSet, dayNum(t), recent, old ? old.miss : []);
+    const set = this.S.set = { date, ids: r.ids, comp: r.comp, order: passOrder(r.ids, this.byId, this.rng),
+      pos: 0, pass: 1, next: null, miss: [] };
+    this._commit({ state: this.S });
+    return set;
+  }
+  setInfo() { const s = this.daySet(); return { size: s.ids.length, pass: s.pass, pos: s.pos, comp: s.comp }; }
+
+  /* ---- 快闪 ---- */
+  startFlash() {
+    if (this.S.open) this._closeOpen(this.now());
+    const set = this.daySet(), L = set.order.length;
+    if (!L) return null;
+    const lim = Math.min(CONFIG.roundSize, L);
+    const queue = set.order.slice(set.pos, set.pos + lim);
+    set.next = null;
+    if (queue.length < lim) { // 这一轮跨到下一遍：下一遍先洗好，本轮已出的词放到下一遍的前 k 张之后，本轮不重复
+      const k = lim - queue.length, inQ = new Set(queue);
+      const nx = passOrder(set.ids, this.byId, this.rng).filter(id => !inQ.has(id));
+      for (const id of queue) nx.splice(k + Math.floor(this.rng() * (nx.length - k + 1)), 0, id);
+      set.next = nx;
+      queue.push(...nx.slice(0, k));
+    }
+    const t = this.now(), R = this.S.round + 1;
+    this.S.round = R;
+    this.S.open = { round: R, mode: 'flash', start: t, last: t, cards: 0 };
+    this._commit({ state: this.S });
+    return { mode: 'flash', round: R, date: set.date, queue, shown: 0, limit: queue.length, y: 0, n: 0, missed: [] };
+  }
+  flashCurrent(s) { return s.shown < s.limit ? s.queue[s.shown] : null; }
+  /* boxes[id] = [格, 到期日, 见过几次, 最后一次升格的日期]（日期都是 dayNum）。同一个日历日只升一格，按答题时刻的日期判（跨午夜也一样） */
+  flashAnswer(s, res, tm) {
+    const id = s.queue[s.shown], t = this.now(), D = dayNum(t);
+    const e = this.boxes[id] || [0, 0, 0, 0], before = e[0], upDay = e[3] || 0;
+    const set = this.S.set;
+    if (res === 'y') s.y++; else { s.n++; s.missed.push(id); } // 同一轮不重出，missed 不会重复
+    let entry;
+    if (res === 'y' && upDay === D) entry = [before, e[1], e[2] + 1, upDay]; // 今天已经升过一格：只记不升
+    else if (res === 'y') { const nb = Math.min(CONFIG.boxMax, before + 1); entry = [nb, D + CONFIG.dayInterval[nb], e[2] + 1, D]; }
+    else entry = [0, D + CONFIG.dayInterval[0], e[2] + 1, upDay];
+    this.boxes[id] = entry;
+    if (set && set.date === s.date) { // 过了午夜还在刷同一轮：照旧往前走，词组第二天打开时才换
+      const i = set.miss.indexOf(id);
+      if (res === 'y') { if (i >= 0) set.miss.splice(i, 1); } else if (i < 0) set.miss.push(id);
+      if (++set.pos >= set.order.length) {
+        set.order = set.next || passOrder(set.ids, this.byId, this.rng);
+        set.next = null; set.pos = 0; set.pass++;
+      }
+    }
+    const ev = this._event('flash', id, res, tm || {}, before);
+    s.shown++; this._day(ev.t).fc++;
+    this._commit({ events: [ev], boxes: { [id]: entry }, state: this.S });
+    return ev;
+  }
+  endRound() { this._closeOpen(this.now()); }
+
+  /* ---- 学新词 ---- */
+  startLearn() {
+    if (this.S.open) this._closeOpen(this.now());
+    const t = this.now(), date = localDate(t);
+    let pack = this.S.packs[date];
+    if (!pack) {
+      const p = pickPack(this.words, this.byId, this.learnedSet, this.adj, date, this.rng);
+      if (p.status !== 'ok') return { status: p.status };
+      pack = this.S.packs[date] = { ids: p.ids, src: p.src, i: 0, quiz: [], qn: 0, redo: [], ri: 0, phase: 'card' };
+    }
+    if (pack.phase === 'done') return { status: 'done', pack: pack };
+    this.S.open = { round: this.S.round, mode: 'learn', start: t, last: t, cards: 0 };
+    this._commit({ state: this.S });
+    return { status: 'ok', mode: 'learn', date: date, pack: pack };
+  }
+  learnInfo() { // 首页用：今天的包学到哪
+    const date = localDate(this.now()), pack = this.S.packs[date];
+    if (pack) return { has: true, total: pack.ids.length, done: pack.phase === 'done',
+      learned: pack.ids.filter(id => this.learnedSet.has(id)).length };
+    const p = pickPack(this.words, this.byId, this.learnedSet, this.adj, date, () => 0.5);
+    return { has: false, status: p.status, total: p.ids ? p.ids.length : 0, learned: 0, done: false };
+  }
+  learnView(ls) {
+    const p = ls.pack, G = CONFIG.groupSize;
+    if (p.phase === 'card') return { phase: 'card', id: p.ids[p.i], idx: p.i, total: p.ids.length,
+      group: Math.floor(p.i / G) + 1, groups: Math.ceil(p.ids.length / G) };
+    if (p.phase === 'quiz') return { phase: 'quiz', id: p.quiz[0], left: p.quiz.length };
+    if (p.phase === 'redo') return { phase: 'redo', id: p.redo[p.ri], idx: p.ri, total: p.redo.length };
+    return { phase: 'done' };
+  }
+  learnNext(ls, ansMs) {
+    const p = ls.pack, G = CONFIG.groupSize;
+    let id;
+    if (p.phase === 'card') {
+      id = p.ids[p.i]; p.i++;
+      if (p.i % G === 0 || p.i >= p.ids.length) {
+        const from = Math.floor((p.i - 1) / G) * G;
+        p.quiz = shuffle(p.ids.slice(from, p.i), this.rng); p.qn = p.quiz.length; p.qy = 0; p.phase = 'quiz';
+      }
+    } else if (p.phase === 'redo') {
+      id = p.redo[p.ri]; p.ri++;
+      if (p.ri >= p.redo.length) p.phase = 'done';
+    } else return null;
+    const e = this.boxes[id];
+    const ev = this._event('learn', id, 'next', { ansMs: ansMs }, e ? e[0] : 0);
+    this._commit({ events: [ev], state: this.S });
+    return ev;
+  }
+  quizAnswer(ls, res, tm) {
+    const p = ls.pack;
+    if (p.phase !== 'quiz' || !p.quiz.length) return null;
+    const id = p.quiz.shift();
+    const e = this.boxes[id] || [0, 0, 0, 0], before = e[0], D = dayNum(this.now());
+    const nb = res === 'y' ? 1 : 0;
+    if (res === 'y') p.qy = (p.qy || 0) + 1;
+    const entry = [nb, D + CONFIG.dayInterval[nb], e[2] + 1, res === 'y' ? D : (e[3] || 0)];
+    this.boxes[id] = entry;
+    if (!this.learnedSet.has(id)) { this.learnedSet.add(id); this.S.learned.push(id); }
+    const ev = this._event('quiz', id, res, tm || {}, before);
+    this._day(ev.t).nl++;
+    if (res !== 'y') p.redo.push(id);
+    if (!p.quiz.length) p.phase = p.i < p.ids.length ? 'card' : (p.redo.length ? 'redo' : 'done');
+    this._commit({ events: [ev], boxes: { [id]: entry }, state: this.S });
+    return ev;
+  }
+  endLearn() { this._closeOpen(this.now()); }
+
+  /* ---- 导出 / 导入 ---- */
+  unsent() { return this.S.seq - this.S.exported.seq; }
+  _snapshot() { // 恢复进度要的全部东西（交记录、完整备份都带）
+    const S = this.S;
+    return clone({ boxes: this.boxes, round: S.round, learned: S.learned, packs: S.packs, set: S.set,
+      days: S.days, seq: S.seq, rid: S.rid, exported: S.exported, devStart: S.devStart, ridStart: S.ridStart });
+  }
+  /* 交记录：从上次确认发出的位置导到现在。指针不动，她点「我已经存好了」（confirmExport）才往前推 */
+  async exportInc() {
+    await this.flush();
+    const ex = this.S.exported, from = ex.seq + 1;
+    const events = await this._list('events', from), rounds = await this._list('rounds', ex.rid + 1);
+    const toSeq = events.length ? events[events.length - 1].seq : from - 1;
+    const toRid = rounds.length ? rounds[rounds.length - 1].rid : ex.rid;
+    const t = this.now();
+    const obj = { type: 'inc', device: this.S.device, exportedAt: new Date(t).toISOString(),
+      fromSeq: from, toSeq: toSeq, events: events, rounds: rounds,
+      round: this.S.round, wordsVersion: this.wordsVersion, adjustVersion: this.adj.version, state: this._snapshot() };
+    return { obj: obj, name: '闪卡记录_' + fileStamp(t) + '.json', toSeq: toSeq, toRid: toRid };
+  }
+  confirmExport(out) {
+    const ex = this.S.exported;
+    if (out.toSeq > ex.seq || out.toRid > ex.rid) {
+      this.S.exported = { seq: Math.max(ex.seq, out.toSeq), rid: Math.max(ex.rid, out.toRid) };
+      this._commit({ state: this.S });
+    }
+    return this.flush();
+  }
+  async exportFull() { // 这个 device 的全部记录＋进度（导入进来的旧记录属于原 device，在原来的文件里）
+    await this.flush();
+    const S = this.S, events = await this._list('events', S.devStart), rounds = await this._list('rounds', S.ridStart);
+    const t = this.now();
+    const obj = { type: 'full', device: S.device, exportedAt: new Date(t).toISOString(),
+      fromSeq: S.devStart, toSeq: S.seq, events: events, rounds: rounds,
+      wordsVersion: this.wordsVersion, adjustVersion: this.adj.version, state: this._snapshot() };
+    return { obj: obj, name: '闪卡备份_' + fileStamp(t) + '.json' };
+  }
+  /* 导入「完整备份」或「交记录」文件（都带 state），恢复进度。导入后换新 device id 接着记，
+     seq/rid 从文件里最大的往后接；文件里的旧记录照存，但算原 device 的，不再导出 */
+  async importFile(obj) {
+    if (typeof obj === 'string') obj = JSON.parse(obj);
+    const st = obj && obj.state;
+    if (!obj || (obj.type !== 'full' && obj.type !== 'inc')) throw new Error('这不是闪卡的备份或记录文件');
+    if (!st || !st.boxes || typeof st.boxes !== 'object') throw new Error('这份文件没带学习进度（旧版交记录文件不能导入）');
+    const events = Array.isArray(obj.events) ? obj.events : [], rounds = Array.isArray(obj.rounds) ? obj.rounds : [];
+    await this.flush();
+    const maxSeq = events.reduce((m, e) => Math.max(m, e.seq || 0), st.seq || 0);
+    const maxRid = rounds.reduce((m, r) => Math.max(m, r.rid || 0), st.rid || 0);
+    let dev = randomId();
+    while (dev === obj.device || dev === this.S.device) dev = randomId();
+    const S = newState(dev);
+    S.round = st.round || 0; S.learned = Array.isArray(st.learned) ? st.learned.slice() : [];
+    S.packs = st.packs && typeof st.packs === 'object' ? st.packs : {}; S.days = st.days && typeof st.days === 'object' ? st.days : {};
+    S.set = st.set && typeof st.set === 'object' && Array.isArray(st.set.ids) ? st.set : null;
+    S.seq = maxSeq; S.rid = maxRid; S.devStart = maxSeq + 1; S.ridStart = maxRid + 1;
+    S.exported = { seq: maxSeq, rid: maxRid }; S.from = { device: obj.device || '', type: obj.type, toSeq: maxSeq };
+    await this.store.replaceAll({ events: events, rounds: rounds, boxes: st.boxes, state: S });
+    this.pending = []; this.bad = false;
+    const snap = await this.store.load();
+    this.S = Object.assign(newState(), snap.state); this.boxes = snap.boxes; this.learnedSet = new Set(this.S.learned);
+    return { events: events.length, words: Object.keys(this.boxes).length, learned: this.S.learned.length, type: obj.type };
+  }
+  importFull(obj) { return this.importFile(obj); }
+}
+
+/* ---- 解密 words.enc：'FCW1' | 标志(1 字节, bit0=gzip) | salt(16) | iv(12) | 密文+tag ---- */
+const hex = u8 => Array.from(u8, b => b.toString(16).padStart(2, '0')).join('');
+const unhex = s => new Uint8Array((s.match(/../g) || []).map(h => parseInt(h, 16)));
+async function decryptWords(buf, auth) {
+  const u8 = new Uint8Array(buf), subtle = root.crypto && root.crypto.subtle;
+  if (!subtle) throw new Error('NOCRYPTO');
+  if (u8.length < 40 || String.fromCharCode(u8[0], u8[1], u8[2], u8[3]) !== 'FCW1') throw new Error('BADFILE');
+  const flags = u8[4], salt = u8.slice(5, 21), iv = u8.slice(21, 33), ct = u8.slice(33);
+  const saltHex = hex(salt);
+  let keyRaw;
+  if (auth.key && auth.salt === saltHex) keyRaw = unhex(auth.key);
+  else {
+    const base = await subtle.importKey('raw', new TextEncoder().encode(auth.pw || ''), 'PBKDF2', false, ['deriveBits']);
+    keyRaw = new Uint8Array(await subtle.deriveBits({ name: 'PBKDF2', salt: salt, iterations: CONFIG.pbkdf2Iter, hash: 'SHA-256' }, base, 256));
+  }
+  const key = await subtle.importKey('raw', keyRaw, 'AES-GCM', false, ['decrypt']);
+  let plain;
+  try { plain = await subtle.decrypt({ name: 'AES-GCM', iv: iv }, key, ct); }
+  catch (e) { throw new Error('BADPW'); }
+  let text;
+  if (flags & 1) {
+    if (typeof DecompressionStream === 'undefined') throw new Error('NOGZIP');
+    text = await new Response(new Blob([plain]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+  } else text = new TextDecoder().decode(plain);
+  return { json: JSON.parse(text), auth: { pw: auth.pw || '', salt: saltHex, key: hex(keyRaw) } };
+}
+
+const FC = { openStore: null, CONFIG, mulberry32, shuffle, localDate, dayNum, fileStamp, newState, normAdjust, effDue, buildDaySet, passOrder, pickPack,
+  MemStore, Engine, decryptWords, clone };
+if (typeof module !== 'undefined' && module.exports) module.exports = FC;
+root.FC = FC;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+</script>
+
+<script id="app">
+/* ===== 页面。所有动态内容都用 textContent / 建节点写入，不拼 HTML 字符串 ===== */
+(function () {
+'use strict';
+const BUILD = '1122-1629';
+const CONFIG = FC.CONFIG;
+const $ = id => document.getElementById(id);
+function el(tag, cls, ...kids) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  for (const k of kids.flat(Infinity)) if (k != null && k !== false) n.append(k.nodeType ? k : String(k));
+  return n;
+}
+const ua = navigator.userAgent || '';
+const isWx = /MicroMessenger/i.test(ua);
+const isIOS = /iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isAndroid = /Android/i.test(ua);
+const standalone = navigator.standalone === true || !!(window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+let store, eng, ui = {}, encBuf = null, cur = 'load', storeDown = false, adjDay = '';
+
+function show(name) {
+  cur = name;
+  document.querySelectorAll('.scr').forEach(s => s.classList.toggle('on', s.id === 's-' + name));
+}
+function banner(msg, retry) {
+  const b = $('banner');
+  b.replaceChildren(el('span', '', msg));
+  if (retry) { const r = el('button', '', '重试'); r.onclick = retry; b.append(r); }
+  b.classList.add('on');
+}
+function hideBanner() { const b = $('banner'); b.classList.remove('on'); b.replaceChildren(); }
+/* 存储打不开、或有记录没写进去：不让开始快闪/学新词 */
+const blocked = () => storeDown || (eng && eng.bad);
+const DOWN_MSG = '这个浏览器现在存不了记录，先不能刷（不然关掉页面就全没了）。换系统自带浏览器、关掉无痕模式后点「重试」。';
+function storeDownBanner() { banner(DOWN_MSG, () => location.reload()); }
+function writeFailBanner() {
+  banner('刚才的记录没存上（还在页面里，没丢）。先别关页面，点「重试」。', async () => {
+    const ok = await eng.retry();
+    if (ok) { hideBanner(); if (cur === 'home') home(); } else writeFailBanner();
+  });
+}
+function onStoreError() { // 写失败：停下正在刷的，回首页，红条给重试；没写进去的留在内存里
+  if (storeDown) return;
+  writeFailBanner();
+  if (['flash', 'pause', 'learn', 'qdone', 'result'].includes(cur)) {
+    clearTimeout(F.timer); clearTimeout(qdTimer);
+    if (eng.S.open) eng.endRound();
+    home();
+  } else if (cur === 'home') home();
+}
+const lsGet = k => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+
+/* ---- IndexedDB 存储（接口同 FC.MemStore）---- */
+class IdbStore {
+  constructor(db) { this.db = db; }
+  static open() {
+    return new Promise((ok, no) => {
+      let rq;
+      try { rq = indexedDB.open('flashcard', 1); } catch (e) { return no(e); }
+      rq.onupgradeneeded = () => {
+        const db = rq.result;
+        db.createObjectStore('events', { keyPath: 'seq' });
+        db.createObjectStore('rounds', { keyPath: 'rid' });
+        db.createObjectStore('boxes', { keyPath: 'id' });
+        db.createObjectStore('kv');
+      };
+      rq.onsuccess = () => ok(new IdbStore(rq.result));
+      rq.onerror = () => no(rq.error);
+      rq.onblocked = () => no(new Error('blocked'));
+      setTimeout(() => no(new Error('timeout')), 6000);
+    });
+  }
+  _tx(names, mode, fn) {
+    return new Promise((ok, no) => {
+      let tx, out;
+      try { tx = this.db.transaction(names, mode); out = fn(tx); } catch (e) { return no(e); }
+      tx.oncomplete = () => ok(out ? out.value : undefined);
+      tx.onerror = () => no(tx.error); tx.onabort = () => no(tx.error || new Error('abort'));
+    });
+  }
+  _get(storeName, make) { // 单个读请求，结果放进 out.value
+    return this._tx([storeName], 'readonly', tx => {
+      const out = { value: undefined };
+      make(tx.objectStore(storeName)).onsuccess = e => { out.value = e.target.result; };
+      return out;
+    });
+  }
+  load() {
+    return this._tx(['boxes', 'kv'], 'readonly', tx => {
+      const out = { value: { state: null, boxes: {} } };
+      tx.objectStore('kv').get('state').onsuccess = e => { out.value.state = e.target.result || null; };
+      tx.objectStore('boxes').getAll().onsuccess = e => { for (const r of e.target.result) out.value.boxes[r.id] = r.v; };
+      return out;
+    });
+  }
+  write(w) {
+    return this._tx(['events', 'rounds', 'boxes', 'kv'], 'readwrite', tx => {
+      if (w.events) for (const e of w.events) tx.objectStore('events').put(e);
+      if (w.rounds) for (const r of w.rounds) tx.objectStore('rounds').put(r);
+      if (w.boxes) for (const id in w.boxes) tx.objectStore('boxes').put({ id: id, v: w.boxes[id] });
+      if (w.state) tx.objectStore('kv').put(w.state, 'state');
+    });
+  }
+  events(from) { return this._get('events', s => s.getAll(IDBKeyRange.lowerBound(from))); }
+  rounds(from) { return this._get('rounds', s => s.getAll(IDBKeyRange.lowerBound(from))); }
+  replaceAll(s) {
+    return this._tx(['events', 'rounds', 'boxes', 'kv'], 'readwrite', tx => {
+      const ev = tx.objectStore('events'), rd = tx.objectStore('rounds'), bx = tx.objectStore('boxes');
+      ev.clear(); rd.clear(); bx.clear();
+      for (const e of s.events) ev.put(e);
+      for (const r of s.rounds) rd.put(r);
+      for (const id in s.boxes) bx.put({ id: id, v: s.boxes[id] });
+      tx.objectStore('kv').put(s.state, 'state');
+    });
+  }
+  kvGet(k) { return this._get('kv', s => s.get(k)).then(v => v === undefined ? null : v); }
+  kvSet(k, v) { return this._tx(['kv'], 'readwrite', tx => { tx.objectStore('kv').put(v, k); }); }
+}
+const kvGet = async k => { try { const v = await store.kvGet(k); if (v != null) return v; } catch (e) {} return lsGet('fc_' + k); };
+const kvSet = async (k, v) => { lsSet('fc_' + k, v); try { await store.kvSet(k, v); } catch (e) {} };
+
+/* ---- 启动 ---- */
+async function boot() {
+  if (isWx) return show('wx');
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+  try { store = await (FC.openStore || IdbStore.open)(); await store.kvGet('ui'); }
+  catch (e) { store = new FC.MemStore(); storeDown = true; }
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) {}
+  eng = new FC.Engine(store, { onError: onStoreError });
+  if (!storeDown) {
+    try { await eng.init(); if (eng.bad) throw new Error('write'); }
+    catch (e) { storeDown = true; }
+  }
+  if (storeDown) { store = new FC.MemStore(); eng = new FC.Engine(store, {}); await eng.init(); storeDownBanner(); }
+  ui = (await kvGet('ui')) || {};
+  if (isIOS && !standalone && !ui.guideSkipped) return show('guide');
+  unlock();
+}
+$('guide-skip').onclick = () => { ui.guideSkipped = true; kvSet('ui', ui); unlock(); };
+
+async function fetchEnc() {
+  const r = await fetch('words.enc');
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.arrayBuffer();
+}
+async function unlock(pw) {
+  show('load'); $('load-msg').textContent = '正在打开词表…';
+  const fail = msg => { show('lock'); $('pw-err').textContent = msg || ''; };
+  try { if (!encBuf) encBuf = await fetchEnc(); }
+  catch (e) { return fail('词表没下载下来，检查网络后再点「进入」。'); }
+  const saved = await kvGet('auth');
+  const tries = pw != null ? [{ pw: pw }] : saved ? [saved, { pw: saved.pw }] : []; // 词表重新加密过时，用记住的口令重算
+  if (!tries.length) return fail('');
+  for (let i = 0; i < tries.length; i++) {
+    try {
+      const r = await FC.decryptWords(encBuf, tries[i]);
+      eng.setWords(r.json);
+      await kvSet('auth', r.auth);
+      return startApp();
+    } catch (e) {
+      const m = e && e.message;
+      if (m === 'BADPW') { if (i < tries.length - 1) continue; return fail(pw != null ? '口令不对，再试一次。' : '口令换过了，请输入老师给的新口令。'); }
+      if (m === 'NOCRYPTO') return fail('这个浏览器或地址不支持解密（要 https）。请换系统自带浏览器。');
+      if (m === 'NOGZIP') return fail('浏览器版本太旧，请更新系统或换一个浏览器。');
+      encBuf = null;
+      return fail('词表文件有问题，检查网络后重试，不行就告诉老师。');
+    }
+  }
+}
+$('pw-ok').onclick = () => { const v = $('pw').value.trim(); if (v) unlock(v); };
+$('pw').onkeydown = e => { if (e.key === 'Enter') $('pw-ok').onclick(); };
+
+async function startApp() {
+  eng.setAdjust(await kvGet('adjust'));
+  await refreshAdjust();
+  home();
+}
+/* 当天第一次进首页（或第一次开始刷）前先拉 adjust.json，最多等 adjustTimeoutMs，拉不到用上次存的；拉完再定当天词组和新词包 */
+async function refreshAdjust() {
+  adjDay = FC.localDate(Date.now());
+  show('load'); $('load-msg').textContent = '正在取老师的调整…';
+  let tm = 0;
+  try {
+    const ac = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const late = new Promise((_, no) => { tm = setTimeout(() => { if (ac) ac.abort(); no(new Error('timeout')); }, CONFIG.adjustTimeoutMs); });
+    const get = (async () => {
+      const r = await fetch('adjust.json?t=' + Date.now(), { cache: 'no-store', signal: ac ? ac.signal : undefined });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })();
+    get.catch(() => {});
+    const a = await Promise.race([get, late]);
+    eng.setAdjust(a); await kvSet('adjust', a);
+  } catch (e) {}
+  clearTimeout(tm);
+}
+const adjStale = () => adjDay !== FC.localDate(Date.now());
+
+/* ---- 首页 ---- */
+function home() {
+  if (adjStale()) return refreshAdjust().then(home); // 过了午夜回到首页：先拉当天的调整
+  const d = eng.today(), li = eng.learnInfo(), S = eng.S;
+  $('h-fr').textContent = d.fr; $('h-fc').textContent = d.fc;
+  $('h-nl').textContent = li.has ? li.learned : 0; $('h-nt').textContent = li.total;
+  $('h-all').textContent = '（累计 ' + S.learned.length + '）';
+  const si = eng.setInfo();
+  $('h-flash-s').textContent = si.size ? '今日词组 ' + si.size + ' 个 · 已刷第 ' + si.pass + ' 遍第 ' + si.pos + ' 张 · 一轮 ' + Math.min(CONFIG.roundSize, si.size) + ' 张'
+    : '今天还没有可以刷的词';
+  $('h-learn-s').textContent = li.done ? '今天这包学完了' :
+    li.has ? '今天这包还剩 ' + (li.total - li.learned) + ' 个，接着学' :
+    li.status === 'stopped' ? '新词已停，考前专心复习' :
+    li.status === 'empty' ? '新词全部学过了' : '今天一包 ' + li.total + ' 个，每 ' + CONFIG.groupSize + ' 个小测一次';
+  const un = eng.unsent();
+  $('h-unsent').textContent = un > 0 ? '还有 ' + un + ' 条没交' : '记录都交过了';
+  $('h-flash').disabled = $('h-learn').disabled = !!blocked();
+  $('h-ver').textContent = '版本 ' + BUILD + ' · 词表 ' + (eng.wordsVersion || '-') + ' · 调整 ' + (eng.adj.version || '-');
+  $('h-ios').hidden = !(isIOS && !standalone);
+  $('h-and').hidden = !(isAndroid && !standalone && !ui.aHint);
+  show('home');
+}
+$('h-and-x').onclick = () => { ui.aHint = true; kvSet('ui', ui); home(); };
+$('h-flash').onclick = startFlash;
+$('h-learn').onclick = startLearn;
+
+/* ---- 快闪 / 小测 共用的卡面 ---- */
+const F = { next: null, answer: null, done: null, exit: null, label: null, autoMiss: true,
+  t0: 0, tFlip: 0, flipped: false, early: false, flipMs: 0, timer: 0, toN: 0, hidAt: 0 };
+const fWord = $('f-word'), fBack = $('f-back'), fBar = $('f-bar'), fAns = $('f-ans');
+const readingOf = w => (w.r && w.r !== w.w ? w.r : (w.orig || w.r || ''));
+function fShow() {
+  const id = F.next();
+  if (!id) return F.done();
+  const w = eng.byId.get(id) || { w: id };
+  F.flipped = false;
+  const len = Array.from(w.w).length;
+  fWord.className = 'word' + (len <= 4 ? '' : len <= 6 ? ' l2' : len <= 9 ? ' l3' : ' l4');
+  fWord.textContent = w.w;
+  fBack.classList.remove('on');
+  $('f-rd').textContent = readingOf(w) + (w.acc ? ' ' + w.acc : '');
+  $('f-ps').textContent = w.pos || '';
+  $('f-m1').textContent = w.m1 || w.m || '';
+  $('f-pos').textContent = F.label();
+  fAns.classList.add('off');
+  fBar.className = ''; void fBar.offsetWidth;
+  fBar.style.animationDuration = CONFIG.flipMs + 'ms'; fBar.style.animationDelay = '0ms'; fBar.className = 'run';
+  clearTimeout(F.timer);
+  F.hidAt = 0; F.t0 = performance.now();
+  F.timer = setTimeout(() => fFlip(false), CONFIG.flipMs);
+}
+function fFlip(early) {
+  if (F.flipped || cur !== 'flash') return;
+  const t = performance.now();
+  if (early && t - F.t0 < CONFIG.tapGuardMs) return;
+  clearTimeout(F.timer);
+  F.flipped = true; F.early = early; F.tFlip = t; F.flipMs = t - F.t0;
+  fBack.classList.add('on'); fAns.classList.remove('off');
+  if (F.autoMiss) { // 翻面后 autoMissMs 不点：自动记不认识，直接下一张（进度条倒着走，提示要点了）
+    fBar.className = ''; void fBar.offsetWidth;
+    fBar.style.animationDuration = CONFIG.autoMissMs + 'ms'; fBar.style.animationDelay = '0ms'; fBar.className = 'miss';
+    F.timer = setTimeout(fTimeout, CONFIG.autoMissMs);
+  } else fBar.className = 'full';
+}
+function fTimeout() {
+  if (!F.flipped || cur !== 'flash') return;
+  F.answer('n', { early: F.early, flipMs: F.flipMs, ansMs: performance.now() - F.tFlip, timeout: true });
+  if (cur !== 'flash') return; // 写失败已经回首页
+  if (++F.toN >= CONFIG.pauseAfter) { F.toN = 0; return show('pause'); } // 连着几张没点：多半是放下手机了，暂停，不计时
+  fShow();
+}
+$('p-go').onclick = () => { show('flash'); fShow(); };
+$('p-exit').onclick = () => { show('flash'); F.exit(); };
+// 切到后台时停表；回来接着这张卡、翻面状态不变，计时只算前台（出词、翻面的时刻往后挪掉后台那段）
+let lHid = 0;
+document.addEventListener('visibilitychange', () => {
+  const t = performance.now();
+  if (cur === 'learn') { if (document.hidden) lHid = t; else if (lHid) { lT0 += t - lHid; lHid = 0; } return; }
+  if (cur !== 'flash') return;
+  if (document.hidden) { clearTimeout(F.timer); F.hidAt = t; return; }
+  if (!F.hidAt) return;
+  const gap = t - F.hidAt; F.hidAt = 0;
+  F.t0 += gap; if (F.flipped) F.tFlip += gap;
+  const total = F.flipped ? CONFIG.autoMissMs : CONFIG.flipMs, spent = t - (F.flipped ? F.tFlip : F.t0);
+  if (F.flipped && !F.autoMiss) return;
+  fBar.className = ''; void fBar.offsetWidth;
+  fBar.style.animationDuration = total + 'ms'; fBar.style.animationDelay = -Math.round(spent) + 'ms';
+  fBar.className = F.flipped ? 'miss' : 'run';
+  clearTimeout(F.timer);
+  F.timer = setTimeout(F.flipped ? fTimeout : () => fFlip(false), Math.max(0, total - spent));
+});
+function fAnswer(res) {
+  if (!F.flipped) return fFlip(true); // 没翻面时点按钮区 = 提前翻
+  clearTimeout(F.timer); F.toN = 0;
+  F.answer(res, { early: F.early, flipMs: F.flipMs, ansMs: performance.now() - F.tFlip });
+  fShow();
+}
+$('f-card').onclick = () => fFlip(true);
+$('f-n').onclick = () => fAnswer('n');
+$('f-y').onclick = () => fAnswer('y');
+$('f-exit').onclick = () => { clearTimeout(F.timer); F.exit(); };
+
+let fs = null;
+function startFlash() {
+  if (blocked()) return storeDown ? storeDownBanner() : writeFailBanner();
+  if (adjStale()) return refreshAdjust().then(startFlash);
+  fs = eng.startFlash();
+  if (!fs) return modal([el('p', 'p', '现在没有可以刷的词。先去「学新词」，或告诉老师。')], [['好', closeModal]]);
+  F.next = () => eng.flashCurrent(fs);
+  F.answer = (res, tm) => eng.flashAnswer(fs, res, tm);
+  F.autoMiss = true;
+  F.label = () => '第 ' + (fs.shown + 1) + ' / ' + fs.limit + ' 张';
+  F.toN = 0;
+  F.done = F.exit = () => { eng.endRound(); if (fs.shown) result(); else home(); };
+  show('flash'); fShow();
+}
+function result() {
+  $('r-cards').textContent = fs.shown; $('r-y').textContent = fs.y; $('r-n').textContent = fs.n;
+  $('r-sub').textContent = fs.missed.length ? '不认识的 ' + fs.missed.length + ' 个词（点开看详细）' : '这一轮全都认识';
+  $('r-list').replaceChildren(...fs.missed.map(id => {
+    const w = eng.byId.get(id) || { w: id };
+    const b = el('button', 'miss', el('span', 'w', w.w), el('span', 'm', (w.r ? w.r + '　' : '') + (w.m1 || '')));
+    b.onclick = () => modal(detail(w), [['关上', closeModal]]);
+    return b;
+  }));
+  show('result');
+}
+$('r-again').onclick = startFlash;
+$('r-home').onclick = home;
+
+/* ---- 详卡 ---- */
+function detail(w) {
+  const out = [el('div', 'd-word', w.w),
+    el('div', 'd-read', readingOf(w), w.acc ? el('small', '', w.acc) : null),
+    el('div', 'chips', w.pos ? el('span', 'chip', w.pos) : null,
+      w.freq > 0 ? el('span', 'chip hot', '真题考过 ' + w.freq + ' 套') : null),
+    el('div', 'd-m', w.m || w.m1 || '')];
+  if (w.hint) out.push(el('div', 'd-hint', w.hint));
+  if (w.ex && w.ex.length) out.push(el('div', 'd-sec', w.ex.map(x => [el('div', 'd-ex', x[0]), el('div', 'd-zh', x[1] || '')])));
+  if (w.rel && w.rel.length) out.push(el('div', 'd-sec', w.rel.map(x => el('div', 'd-rel', x))));
+  return out;
+}
+
+/* ---- 学新词 ---- */
+let ls = null, lT0 = 0;
+function startLearn() {
+  if (blocked()) return storeDown ? storeDownBanner() : writeFailBanner();
+  if (adjStale()) return refreshAdjust().then(startLearn);
+  const r = eng.startLearn();
+  if (r.status === 'ok') { ls = r; return lRender(); }
+  learnDone(r.status, r.pack);
+}
+function learnDone(status, pack) {
+  $('ld-title').textContent = status === 'stopped' ? '新词停了' : status === 'empty' ? '新词全部学过了' : '今天的新词学完了';
+  $('ld-msg').textContent = status === 'stopped' ? '考前这几天专心快闪复习。' : status === 'empty' ? '接下来靠快闪复习巩固。' :
+    '今天这包 ' + (pack ? pack.ids.length : 0) + ' 个都过了一遍，明天的快闪词组里会有它们。';
+  show('ldone');
+}
+function lRender() {
+  const v = eng.learnView(ls);
+  if (v.phase === 'done') { eng.endLearn(); return learnDone('done', ls.pack); }
+  if (v.phase === 'quiz') {
+    const p = ls.pack;
+    F.next = () => (p.phase === 'quiz' && p.quiz.length ? p.quiz[0] : null);
+    F.answer = (res, tm) => eng.quizAnswer(ls, res, tm);
+    F.autoMiss = CONFIG.autoMissQuiz;
+    F.label = () => '小测 ' + (p.qn - p.quiz.length + 1) + ' / ' + p.qn;
+    F.done = () => quizSum(p);
+    F.exit = () => { eng.endLearn(); home(); };
+    F.toN = 0;
+    show('flash'); return fShow();
+  }
+  const w = eng.byId.get(v.id) || { w: v.id };
+  $('l-pos').textContent = v.phase === 'redo' ? '刚才不认识的再看一遍 ' + (v.idx + 1) + ' / ' + v.total :
+    '第 ' + v.group + ' / ' + v.groups + ' 组 · 今天 ' + (v.idx + 1) + ' / ' + v.total;
+  const body = $('l-body'); body.replaceChildren(...detail(w)); body.scrollTop = 0;
+  const last = v.phase === 'card' && ((v.idx + 1) % CONFIG.groupSize === 0 || v.idx + 1 === v.total);
+  $('l-next').textContent = last ? '看完了，小测这一组' : '下一个';
+  lT0 = performance.now(); lHid = 0;
+  show('learn');
+}
+/* 小测一组答完：一屏「这组 7/10 认识」，quizSumMs 后自动往下走，或点继续 */
+let qdTimer = 0;
+function quizSum(p) {
+  $('qd-msg').textContent = '这组 ' + (p.qy || 0) + ' / ' + p.qn + ' 认识';
+  show('qdone');
+  clearTimeout(qdTimer); qdTimer = setTimeout(qdGo, CONFIG.quizSumMs);
+}
+function qdGo() { clearTimeout(qdTimer); if (cur === 'qdone') lRender(); }
+$('qd-go').onclick = qdGo;
+$('l-next').onclick = () => {
+  const dt = performance.now() - lT0;
+  if (dt < CONFIG.learnGuardMs) return;
+  eng.learnNext(ls, dt);
+  if (cur === 'learn') lRender();
+};
+$('l-exit').onclick = () => { eng.endLearn(); home(); };
+$('ld-flash').onclick = startFlash;
+$('ld-home').onclick = home;
+
+/* ---- 弹层：nodes 是节点数组，btns 是 [文字, 回调, 是否次要] ---- */
+function modal(nodes, btns) {
+  $('m-body').replaceChildren(...nodes);
+  $('m-foot').replaceChildren(...(btns || []).map(b => {
+    const n = el('button', 'btn' + (b[2] ? ' ghost' : ''), b[0]); n.onclick = b[1]; return n;
+  }));
+  $('modal').classList.add('on');
+}
+function closeModal() { $('modal').classList.remove('on'); $('m-body').replaceChildren(); $('m-foot').replaceChildren(); }
+$('modal').onclick = e => { if (e.target === $('modal')) closeModal(); };
+
+/* ---- 导出 ---- */
+function download(name, text) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  a.download = name; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+}
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch (e) {}
+  try {
+    const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.focus(); ta.select(); ta.setSelectionRange(0, text.length);
+    const ok = document.execCommand('copy'); ta.remove(); return ok;
+  } catch (e) { return false; }
+}
+function exportSheet(out, kind) {
+  const o = out.obj, text = JSON.stringify(o), n = o.events.length;
+  let file = null;
+  try {
+    file = new File([text], out.name, { type: 'application/json' });
+    if (!(navigator.canShare && navigator.canShare({ files: [file] }))) file = null;
+  } catch (e) { file = null; }
+  const note = el('div', 'err ok');
+  const msg = t => { note.textContent = t; };
+  const info = kind === 'inc'
+    ? (n ? el('p', 'p', '这次 ', el('b', '', n), ' 条（第 ' + o.fromSeq + '〜' + o.toSeq + ' 条）。点「存到 iCloud」，存进「闪卡记录」文件夹，存好后点「我已经存好了」；没点的话，下次交记录会连这次的一起再导一遍。')
+      : el('p', 'p', '没有新的记录要交。'))
+    : el('p', 'p', '全部 ', el('b', '', n), ' 条记录和学习进度。换手机、清浏览器之前存一份。');
+  const btns = [];
+  if (n || kind === 'full') {
+    if (file) btns.push(['存到 iCloud', () => { navigator.share({ files: [file] }).then(() => msg('在弹出的菜单里选「存储到“文件”」→ iCloud 云盘 →「闪卡记录」→ 存储。存好后点「我已经存好了」。'), () => {}); }]);
+    btns.push(['下载文件', () => { download(out.name, text); msg('已下载：' + out.name + '。文件一般在「下载」或「文件」App 里。'); }, !!file]);
+    btns.push(['复制文字', async () => { msg((await copyText(text)) ? '已复制，去微信里粘贴发给老师。' : '复制失败，请用「下载文件」。'); }, true]);
+  }
+  if (kind === 'inc' && n) btns.push(['我已经存好了', async () => {
+    try { await eng.confirmExport(out); closeModal(); home(); } catch (e) { msg('出错：' + e.message); }
+  }]);
+  btns.push(['关上', () => { closeModal(); home(); }, true]);
+  modal([el('div', 'h2', kind === 'inc' ? '交记录' : '完整备份'), info, note], btns);
+}
+$('h-inc').onclick = async () => { try { exportSheet(await eng.exportInc(), 'inc'); } catch (e) { banner('导出出错：' + e.message); } };
+$('h-full').onclick = async () => { try { exportSheet(await eng.exportFull(), 'full'); } catch (e) { banner('导出出错：' + e.message); } };
+
+/* ---- 导入 ---- */
+$('h-imp').onclick = () => {
+  const file = el('input'); file.type = 'file'; file.accept = '.json,application/json,text/plain'; file.style.cssText = 'margin:10px 0;font-size:16px';
+  const ta = el('textarea'); ta.placeholder = '或者粘贴文件里的文字';
+  const note = el('div', 'err');
+  const msg = t => { note.textContent = t; };
+  modal([el('div', 'h2', '导入'),
+    el('p', 'p', '选一份「闪卡备份」或「闪卡记录」文件（用最新的那一份），或把文字粘贴进来。', el('b', '', '会覆盖这台手机上现在的进度。')), file, ta, note],
+  [['导入并覆盖', async () => {
+    try {
+      const f = file.files[0];
+      const text = f ? await f.text() : ta.value.trim();
+      if (!text) return msg('先选文件或粘贴文字。');
+      let obj; try { obj = JSON.parse(text); } catch (e) { return msg('内容不完整，不是合法的文件。'); }
+      if (!obj || (obj.type !== 'full' && obj.type !== 'inc')) return msg('这不是闪卡的备份或记录文件。');
+      if (!obj.state || !obj.state.boxes) return msg('这份文件没带学习进度（旧版的交记录文件），请用更新的一份。');
+      const un = eng.unsent();
+      if (eng.S.seq > 0 && !confirm('导入后这台手机上现在的进度会换成文件里的。' + (un > 0 ? '现在还有 ' + un + ' 条没交，最好先点「交记录」发掉。' : '') + '确定吗？')) return;
+      const r = await eng.importFile(obj);
+      home();
+      modal([el('p', 'p', '导入好了：', el('b', '', r.words), ' 个词的进度，已学新词 ', el('b', '', r.learned), ' 个。这份文件要是还没发给老师，记得把它也发过去。')], [['好', closeModal]]);
+    } catch (e) { msg('导入失败：' + (e && e.message)); }
+  }], ['取消', closeModal, true]]);
+};
+
+boot().catch(e => { banner('打不开：' + (e && e.message)); });
+})();
+</script>
+</body>
+</html>
