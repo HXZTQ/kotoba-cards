@@ -89,6 +89,8 @@ button:disabled{opacity:.4}
 .back .rd{font-family:var(--jp);font-size:30px;font-weight:600;color:var(--acc)}
 .back .ps{font-size:15px;color:var(--sub);margin-top:8px}
 .back .m1{font-size:28px;font-weight:700;margin-top:10px;line-height:1.3}
+.back .hint{font-size:15px;color:var(--sub);margin-top:10px;line-height:1.5}
+.back .hint:empty{display:none}
 .bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden;margin-bottom:12px}
 .bar i{display:block;height:100%;width:100%;background:var(--acc);transform-origin:left center;transform:scaleX(0)}
 .bar i.run{animation:bar linear forwards}
@@ -186,7 +188,7 @@ textarea{font-size:12px;height:110px;font-family:ui-monospace,Menlo,monospace}
   <div class="top"><span id="f-pos"></span><button class="x" id="f-exit">退出</button></div>
   <div class="card" id="f-card">
     <div class="word" id="f-word"></div>
-    <div class="back" id="f-back"><div class="rd" id="f-rd"></div><div class="ps" id="f-ps"></div><div class="m1" id="f-m1"></div></div>
+    <div class="back" id="f-back"><div class="rd" id="f-rd"></div><div class="ps" id="f-ps"></div><div class="m1" id="f-m1"></div><div class="hint" id="f-hint"></div></div>
   </div>
   <div class="bar"><i id="f-bar"></i></div>
   <div class="ans off" id="f-ans"><button class="btn n" id="f-n">不认识</button><button class="btn y" id="f-y">认识</button></div>
@@ -262,7 +264,17 @@ const CONFIG = {
   learnGuardMs: 400,        // 详卡出来后这么多毫秒内「下一个」不响应（防连点）
   adjustTimeoutMs: 3000,    // 进首页前拉 adjust.json 最多等多久，超时用上次存的
   uploadTimeoutMs: 15000,   // 自动上传一次最多等多久，超时算失败、下次再补
-  pbkdf2Iter: 200000
+  pbkdf2Iter: 200000,
+  /* v2 记忆逻辑（11-22 晚，记忆逻辑_v2.md） */
+  fastMs: 1200,             // 翻面后这么多毫秒内点「认识」算快认；当天第一次见面快认才升格，慢认格不动
+  requeueGap: [8, 12],      // 轮内回炉：点不认识的词插到当前位置后第 8〜12 张（随机），只回炉一次
+  requeueMax: 10,           // 每轮最多回炉几张（回炉卡占一轮 50 张里的位置）
+  gradStreak: 3,            // 今天连续快认几次就「毕业」，今天不再出
+  setSizeMax: 300,          // 当天词组「有效大小」（不算今天毕业的）封顶：今天学的新词加进来超过它，先剔今天还没出过的词腾位
+  setSizeHard: 400,         // 全都剔不动时才允许超过 setSizeMax，最多到这个数
+  newInsertWithin: 50,      // 学完一组新词，插进这一遍接下来多少张以内
+  leechAt: 3,               // 跨天「当天第一次见面就不认识」累计几天算顽固词（翻面多一行提示）
+  stopNewAfter: '2026-12-03' // adjust.json 没写时：这天之后不给新词、词组改考前排法
 };
 
 function mulberry32(a) {
@@ -299,6 +311,21 @@ function newState(device) {
     exported: { seq: 0, rid: 0 }, devStart: 1, ridStart: 1, open: null };
 }
 
+/* 当天词组补齐 v2 字段（旧版存的词组没有这些，直接补空的，不丢进度）：first 当天首见结果 {id: y快认/s慢认/n不认识}，
+   run 今天连续快认次数，grad 今天毕业的词，rqn 今天回炉张数 */
+function normSet(set) {
+  if (!set || typeof set !== 'object' || !Array.isArray(set.ids)) return null;
+  if (!Array.isArray(set.order)) set.order = set.ids.slice();
+  if (!Array.isArray(set.miss)) set.miss = [];
+  if (!(set.pos >= 0)) set.pos = 0;
+  if (!(set.pass >= 1)) set.pass = 1;
+  if (!set.first || typeof set.first !== 'object') set.first = {};
+  if (!set.run || typeof set.run !== 'object') set.run = {};
+  if (!Array.isArray(set.grad)) set.grad = [];
+  if (!(set.rqn >= 0)) set.rqn = 0;
+  return set;
+}
+
 /* 校验 adjust.json：数不对的用默认，超范围的夹到范围里；新词包里的 id 在 pickPack 里再按词表过一遍 */
 function normAdjust(a) {
   a = a && typeof a === 'object' ? a : {};
@@ -310,7 +337,7 @@ function normAdjust(a) {
     setSize: clampN(a.setSize, CONFIG.setSizeRange[0], CONFIG.setSizeRange[1], CONFIG.setSize),
     quotaRecent: num('quotaRecent'), quotaMiss: num('quotaMiss'), dueMin: clampN(a.dueMin != null ? a.dueMin : a.quotaDue, 0, 1e6, CONFIG.dueMin),
     freshMin: num('freshMin'),
-    stopNewAfter: typeof a.stopNewAfter === 'string' ? a.stopNewAfter : '',
+    stopNewAfter: typeof a.stopNewAfter === 'string' ? a.stopNewAfter : CONFIG.stopNewAfter,
     nextPacks: Array.isArray(a.nextPacks) ? a.nextPacks.filter(Array.isArray) : [],
     boost: new Set(Array.isArray(a.boost) ? a.boost.map(String) : []),
     slow: new Set(Array.isArray(a.slow) ? a.slow.map(String) : [])
@@ -372,6 +399,45 @@ function buildDaySet(words, boxes, adj, learnedSet, D, recent, prevMiss) {
   for (const w of dueList.concat(spill)) add(w, 'due');   // 没碰过的 seen 不够时，还空的位给到期块剩下的
   for (const it of near) add(it.w, 'near');
   return { ids: out, comp };
+}
+
+/* 考前（今天 > stopNewAfter）的词组：顽固词 → 格 ≤2 且见过的词 → 到期的 tier1 → 照上面 v1 规则补满 setSize */
+function buildExamSet(words, boxes, adj, learnedSet, D, recent, prevMiss) {
+  const N = adj.setSize;
+  const byTS = (a, b) => (a.tier - b.tier) || (b.score - a.score) || (a.id < b.id ? -1 : 1);
+  const ok = w => w.pool !== 'new' || learnedSet.has(w.id);
+  const leech = [], weak = [], due1 = [];
+  for (const w of words) {
+    const e = boxes[w.id];
+    if (!e || !ok(w)) continue;
+    if ((e[5] || 0) >= CONFIG.leechAt) leech.push(w);
+    else if (e[0] <= 2) weak.push(w);
+    else if (w.tier === 1) { const ed = effDue(e, w, adj); if (ed <= D) due1.push({ w, o: D - ed }); }
+  }
+  leech.sort((a, b) => ((boxes[b.id][5] || 0) - (boxes[a.id][5] || 0)) || byTS(a, b));
+  weak.sort((a, b) => (boxes[a.id][0] - boxes[b.id][0]) || byTS(a, b));
+  due1.sort((a, b) => (b.o - a.o) || byTS(a.w, b.w));
+  const out = [], take = new Set();
+  const comp = { recent: 0, miss: 0, due: 0, fresh: 0, near: 0, leech: 0, weak: 0, due1: 0 };
+  const put = (list, k) => { for (const w of list) { if (out.length >= N) return; take.add(w.id); out.push(w.id); comp[k]++; } };
+  put(leech, 'leech'); put(weak, 'weak'); put(due1.map(x => x.w), 'due1');
+  if (out.length < N) {
+    const r = buildDaySet(words.filter(w => !take.has(w.id)), boxes, Object.assign({}, adj, { setSize: N - out.length }), learnedSet, D, recent, prevMiss);
+    out.push(...r.ids); for (const k of Object.keys(r.comp)) comp[k] += r.comp[k];
+  }
+  return { ids: out, comp };
+}
+
+/* 新的一遍（v2）：wrong（今天最近一次是错的）随机占前半的位置，其余照 passOrder（tier1 往前） */
+function passWithWrongs(others, wrongs, byId, rng) {
+  const rest = passOrder(others, byId, rng), T = rest.length + wrongs.length;
+  if (!wrongs.length) return rest;
+  const half = Math.max(wrongs.length, Math.ceil(T / 2));
+  const slots = shuffle(Array.from({ length: half }, (_, i) => i), rng).slice(0, wrongs.length).sort((a, b) => a - b);
+  const ws = shuffle(wrongs, rng), out = [];
+  let wi = 0, ri = 0;
+  for (let i = 0; i < T; i++) out.push(wi < slots.length && slots[wi] === i ? ws[wi++] : rest[ri++]);
+  return out;
 }
 
 /* 一遍的顺序：整体洗牌，tier1 的随机键乘 tier1Front，平均更靠前 */
@@ -441,9 +507,25 @@ class Engine {
     this.S.exported = { seq: ex.seq || 0, rid: ex.rid || 0 };
     this.boxes = snap.boxes || {};
     this.learnedSet = new Set(this.S.learned);
+    const v1 = !!snap.state && !(this.S.set && this.S.set.first); // v1 存的进度（词组没有 v2 字段）
+    this.S.set = normSet(this.S.set);
+    if (v1) await this._markSeenToday();
     if (this.S.open) this._closeOpen(this.S.open.last || this.S.open.start); // 上次没正常退出的那一轮补记
     else if (!snap.state) this._commit({ state: this.S });
     await this.flush();
+  }
+  /* 旧状态升级：今天已经有 v1 的快闪（或小测）事件、格子里还没有「当天首见日」的词，记成今天已首见过——
+     今天它的格已经按 v1 规则动过，v2 不再升格、不再加顽固计数 */
+  async _markSeenToday() {
+    const D = dayNum(this.now()), date = localDate(this.now()), up = {};
+    const evs = await this._list('events', 0);
+    for (const ev of evs) {
+      if ((ev.mode !== 'flash' && ev.mode !== 'quiz') || localDate(ev.t) !== date) continue;
+      const e = this.boxes[ev.id];
+      if (!e || e[4] === D) continue;
+      this.boxes[ev.id] = up[ev.id] = [e[0], e[1], e[2], e[3] || 0, D, e[5] || 0];
+    }
+    if (Object.keys(up).length) this._commit({ boxes: up });
   }
   setWords(json) {
     this.words = json.words || []; this.wordsVersion = json.version || '';
@@ -508,7 +590,7 @@ class Engine {
   }
 
   /* ---- 每天的固定词组 ---- */
-  daySet() { // 今天的词组：没有就现在生成（首页一打开就调用），当天不变
+  daySet() { // 今天的词组：没有就现在生成（首页一打开就调用），当天不变（v2：补位、新词加入会让它变大，有效大小上限见 _makeRoom）
     const t = this.now(), date = localDate(t), old = this.S.set;
     if (old && old.date === date) return old;
     const prevDate = old ? old.date : localDate(t - 86400000);
@@ -517,60 +599,190 @@ class Engine {
       if (d < prevDate || d >= date) continue;
       for (const id of this.S.packs[d].ids) if (this.learnedSet.has(id)) recent.push(id);
     }
-    const r = buildDaySet(this.words, this.boxes, this.adj, this.learnedSet, dayNum(t), recent, old ? old.miss : []);
-    const set = this.S.set = { date, ids: r.ids, comp: r.comp, order: passOrder(r.ids, this.byId, this.rng),
-      pos: 0, pass: 1, next: null, miss: [] };
+    const exam = !!this.adj.stopNewAfter && date > this.adj.stopNewAfter;
+    const r = (exam ? buildExamSet : buildDaySet)(this.words, this.boxes, this.adj, this.learnedSet, dayNum(t), recent, old ? old.miss : []);
+    const set = this.S.set = normSet({ date, ids: r.ids, comp: r.comp, order: passOrder(r.ids, this.byId, this.rng),
+      pos: 0, pass: 1, next: null, miss: [], prev: prevDate });
+    if (exam) set.exam = true;
+    const pk = this.S.packs[date]; // 先学了新词才打开首页：今天已学的也进
+    if (pk) this._insertNew(set, pk.ids.filter(id => this.learnedSet.has(id)));
     this._commit({ state: this.S });
     return set;
   }
   setInfo() { const s = this.daySet(); return { size: s.ids.length, pass: s.pass, pos: s.pos, comp: s.comp }; }
+  _active(set) { return set.ids.length - set.grad.length; } // 词组「有效大小」：今天毕业的不算
+  _cap() { return Math.max(CONFIG.setSizeMax, this.adj.setSize); } // adjust.json 把 setSize 设得比上限大时，按它
+  /* 腾位（11-22 调整）：今天学的新词要加 n 个、有效大小会超过上限时，从词组里剔「今天还没出过」的词。
+     剔的顺序：没碰过的 seen（tier、score 靠后的先）→ 还没到期的旧词（离到期最远的先）→ 到期旧词（过期天数×tier 权重小的先）。
+     永不剔：今天出过的（含今天错过的）、今天的新词、上次以来学的新词（昨天学的）、顽固词、到期的 0 格词、到期的重点词。返回剔了几个 */
+  _makeRoom(set, n) {
+    let need = this._active(set) + n - this._cap();
+    if (need <= 0) return 0;
+    const D = dayNum(this.now()), keep = new Set(set.grad);
+    for (const d of Object.keys(this.S.packs)) if (d >= (set.prev || localDate(this.now() - 86400000)) && d <= set.date) for (const id of this.S.packs[d].ids) keep.add(id);
+    const byTS = (a, b) => (a.tier - b.tier) || (b.score - a.score) || (a.id < b.id ? -1 : 1);
+    const fresh = [], near = [], due = [];
+    for (const id of set.ids) {
+      if (keep.has(id) || id in set.run || set.miss.includes(id)) continue;
+      const e = this.boxes[id], w = this.byId.get(id);
+      if (!w) continue;
+      if (!e) { fresh.push(w); continue; }
+      if (e[4] === D || (e[5] || 0) >= CONFIG.leechAt) continue; // 今天出过（含 v1 留下的、今天小测的）、顽固词
+      const ed = effDue(e, w, this.adj);
+      if (ed > D) { near.push({ w, ed }); continue; }
+      if (e[0] === 0 || w.tier === 1) continue; // 审查后补：到期的 0 格词（上次没认出）和到期的重点词也不剔
+      due.push({ w, u: (D - ed + 1) * (CONFIG.tierWeight[w.tier] || 1) });
+    }
+    fresh.sort((a, b) => byTS(b, a));
+    near.sort((a, b) => (b.ed - a.ed) || byTS(b.w, a.w));
+    due.sort((a, b) => (a.u - b.u) || byTS(b.w, a.w));
+    const cut = new Set();
+    for (const w of fresh.concat(near.map(x => x.w), due.map(x => x.w))) { if (need <= 0) break; cut.add(w.id); need--; }
+    if (!cut.size) return 0;
+    const before = set.order.slice(0, set.pos).filter(id => cut.has(id)).length;
+    set.ids = set.ids.filter(id => !cut.has(id)); set.order = set.order.filter(id => !cut.has(id)); set.pos -= before;
+    set.cut = (set.cut || 0) + cut.size;
+    return cut.size;
+  }
+  /* 新词加进当天词组（先 _makeRoom 腾位，腾不够才超过上限，最多 setSizeHard），并插到这一遍接下来 newInsertWithin 张以内的随机位置
+     （各占一个位置，插完都还在这个范围里，下一轮就见到） */
+  _insertNew(set, ids) {
+    const have = new Set(set.ids), add = [];
+    for (const id of ids) if (!have.has(id)) { have.add(id); add.push(id); }
+    if (!add.length) return;
+    this._makeRoom(set, add.length);
+    add.splice(Math.max(0, CONFIG.setSizeHard - this._active(set)));
+    if (!add.length) return;
+    set.ids.push(...add); set.added = (set.added || 0) + add.length;
+    const W = Math.min(CONFIG.newInsertWithin, set.order.length - set.pos + add.length);
+    const slots = shuffle(Array.from({ length: W }, (_, i) => i), this.rng).slice(0, add.length).sort((a, b) => a - b);
+    const ws = shuffle(add, this.rng);
+    slots.forEach((x, i) => set.order.splice(set.pos + x, 0, ws[i]));
+    for (const id of ws.slice(slots.length)) { // 一次加进来超过 newInsertWithin 个（先学了一大包才打开首页）：多的随机排在后面
+      const lo = set.pos + W;
+      set.order.splice(lo + Math.floor(this.rng() * (set.order.length - lo + 1)), 0, id);
+    }
+  }
+  /* 开新的一遍（v2）：毕业的不进；毕业空出的位置补（今天学过没进组的新词 → 到期旧词 → 没碰过的 seen）；
+     今天最近一次是错的随机排在前半，其余照 passOrder */
+  _newPass(set) {
+    const grad = new Set(set.grad), D = dayNum(this.now());
+    let need = Math.min(this.adj.setSize, this._cap()) - (set.ids.length - grad.size);
+    if (need > 0) {
+      const have = new Set(set.ids), add = [];
+      const push = id => { if (need > 0 && !have.has(id)) { have.add(id); add.push(id); need--; } };
+      const pk = this.S.packs[set.date];
+      if (pk) for (const id of pk.ids) if (this.learnedSet.has(id)) push(id);
+      const byTS = (a, b) => (a.tier - b.tier) || (b.score - a.score) || (a.id < b.id ? -1 : 1);
+      const due = [], fresh = [];
+      for (const w of this.words) {
+        if (have.has(w.id) || (w.pool === 'new' && !this.learnedSet.has(w.id))) continue;
+        const e = this.boxes[w.id];
+        if (!e) { if (w.pool !== 'new') fresh.push(w); continue; }
+        const ed = effDue(e, w, this.adj);
+        if (ed <= D) due.push({ w, u: (D - ed + 1) * (CONFIG.tierWeight[w.tier] || 1) });
+      }
+      due.sort((a, b) => (b.u - a.u) || byTS(a.w, b.w)); fresh.sort(byTS);
+      for (const x of due) push(x.w.id);
+      for (const w of fresh) push(w.id);
+      set.ids.push(...add); set.filled = (set.filled || 0) + add.length;
+    }
+    const wrongSet = new Set(set.miss.filter(id => !grad.has(id)));
+    const others = set.ids.filter(id => !grad.has(id) && !wrongSet.has(id));
+    set.order = passWithWrongs(others, set.ids.filter(id => wrongSet.has(id)), this.byId, this.rng);
+    set.next = null; set.pos = 0; set.pass++;
+  }
 
   /* ---- 快闪 ---- */
   startFlash() {
     if (this.S.open) this._closeOpen(this.now());
-    const set = this.daySet(), L = set.order.length;
-    if (!L) return null;
-    const lim = Math.min(CONFIG.roundSize, L);
-    const queue = set.order.slice(set.pos, set.pos + lim);
+    const set = this.daySet(), active = set.ids.length - set.grad.length;
+    if (!set.order.length || active <= 0) return null;
+    const lim = Math.min(CONFIG.roundSize, active);
     set.next = null;
-    if (queue.length < lim) { // 这一轮跨到下一遍：下一遍先洗好，本轮已出的词放到下一遍的前 k 张之后，本轮不重复
-      const k = lim - queue.length, inQ = new Set(queue);
-      const nx = passOrder(set.ids, this.byId, this.rng).filter(id => !inQ.has(id));
-      for (const id of queue) nx.splice(k + Math.floor(this.rng() * (nx.length - k + 1)), 0, id);
-      set.next = nx;
-      queue.push(...nx.slice(0, k));
-    }
     const t = this.now(), R = this.S.round + 1;
     this.S.round = R;
     this.S.open = { round: R, mode: 'flash', start: t, last: t, cards: 0 };
     this._commit({ state: this.S });
-    return { mode: 'flash', round: R, date: set.date, queue, shown: 0, limit: queue.length, y: 0, n: 0, missed: [] };
+    // queue：已出过和正在出的卡（按需往后取）；rq：回炉预约 {第几张: id}；inR：本轮从「遍」里出过的词
+    return { mode: 'flash', round: R, date: set.date, queue: [], src: [], shown: 0, limit: lim, y: 0, n: 0, missed: [],
+      rq: {}, rqn: 0, rqd: new Set(), inR: new Set() };
   }
-  flashCurrent(s) { return s.shown < s.limit ? s.queue[s.shown] : null; }
-  /* boxes[id] = [格, 到期日, 见过几次, 最后一次升格的日期]（日期都是 dayNum）。同一个日历日只升一格，按答题时刻的日期判（跨午夜也一样） */
-  flashAnswer(s, res, tm) {
-    const id = s.queue[s.shown], t = this.now(), D = dayNum(t);
-    const e = this.boxes[id] || [0, 0, 0, 0], before = e[0], upDay = e[3] || 0;
+  flashCurrent(s) {
+    if (s.shown >= s.limit) return null;
+    if (s.queue.length > s.shown) return s.queue[s.shown];
+    let id = s.rq[s.shown], src = 'r';
+    if (id == null) { id = this._drawPass(s); src = 'p'; }
+    if (id == null) { s.limit = s.shown; return null; }
+    s.queue.push(id); s.src.push(src);
+    if (src === 'p') s.inR.add(id);
+    return id;
+  }
+  /* 从这一遍里取下一张：毕业的拿掉；本轮已出过的跳过（留在原位，下一轮先出），取第一个没出过的挪到当前位置；一遍刷完开新的一遍 */
+  _drawPass(s) {
     const set = this.S.set;
-    if (res === 'y') s.y++; else { s.n++; s.missed.push(id); } // 同一轮不重出，missed 不会重复
+    if (!set) return null;
+    const grad = new Set(set.grad);
+    for (let tries = 0; tries < 3; tries++) {
+      if (set.pos >= set.order.length) { if (!set.order.length) return null; this._newPass(set); }
+      for (let j = set.pos; j < set.order.length;) {
+        const id = set.order[j];
+        if (grad.has(id)) { set.order.splice(j, 1); continue; }
+        if (s.inR.has(id)) { j++; continue; }
+        if (j > set.pos) { set.order.splice(j, 1); set.order.splice(set.pos, 0, id); }
+        return id;
+      }
+      if (set.pos > 0) { set.pos = set.order.length; continue; } // 这一遍剩下的都是本轮出过的：开新的一遍再找
+      return null;
+    }
+    return null;
+  }
+  /* 轮内回炉：插到第 k 张后第 8〜12 张（剩不到就插轮末），已预约的位置往后、再往前找空位；每轮最多 requeueMax 张、每词一次 */
+  _requeue(s, id, k) {
+    if (s.rqn >= CONFIG.requeueMax || s.rqd.has(id)) return;
+    const [lo, hi] = CONFIG.requeueGap;
+    const j = Math.min(k + lo + Math.floor(this.rng() * (hi - lo + 1)), s.limit - 1);
+    let x = -1;
+    for (let i = j; i < s.limit && x < 0; i++) if (!(i in s.rq)) x = i;
+    for (let i = j - 1; i > k && x < 0; i--) if (!(i in s.rq)) x = i;
+    if (x <= k) return;
+    s.rq[x] = id; s.rqn++; s.rqd.add(id);
+    if (this.S.set) this.S.set.rqn = (this.S.set.rqn || 0) + 1;
+  }
+  /* boxes[id] = [格, 到期日, 见过几次, 最后一次升格的日期, 最后一次「当天首见」的日期, 顽固计数]（日期都是 dayNum）。
+     v2：只有当天第一条快闪定升降——快认（ansMs ≤ fastMs）升一格（一天最多一格）、慢认不动、不认识回 0 且顽固计数 +1；
+     当天之后的（含回炉）只记次数、不改格。按答题时刻的日期判（跨午夜也一样） */
+  flashAnswer(s, res, tm) {
+    tm = tm || {};
+    const id = this.flashCurrent(s);
+    if (id == null) return null;
+    const t = this.now(), D = dayNum(t), k = s.shown, isRq = s.src[k] === 'r';
+    const e = this.boxes[id] || [0, 0, 0, 0, 0, 0], before = e[0], upDay = e[3] || 0, lc = e[5] || 0;
+    const first = (e[4] || 0) !== D, fast = res === 'y' && (tm.ansMs || 0) <= CONFIG.fastMs;
+    const set = this.S.set;
+    if (res === 'y') s.y++; else { s.n++; if (!s.missed.includes(id)) s.missed.push(id); }
     let entry;
-    if (res === 'y' && upDay === D) entry = [before, e[1], e[2] + 1, upDay]; // 今天已经升过一格：只记不升
-    else if (res === 'y') { const nb = Math.min(CONFIG.boxMax, before + 1); entry = [nb, D + CONFIG.dayInterval[nb], e[2] + 1, D]; }
-    else entry = [0, D + CONFIG.dayInterval[0], e[2] + 1, upDay];
+    if (first && fast && upDay !== D) { const nb = Math.min(CONFIG.boxMax, before + 1); entry = [nb, D + CONFIG.dayInterval[nb], e[2] + 1, D, D, lc]; }
+    else if (first && res !== 'y') entry = [0, D + CONFIG.dayInterval[0], e[2] + 1, upDay, D, lc + 1];
+    else entry = [before, e[1] || (D + CONFIG.dayInterval[before]), e[2] + 1, upDay, D, lc]; // 慢认、今天已升过、或今天不是第一次：格不动（新词没有到期日就按本格间隔给）
     this.boxes[id] = entry;
     if (set && set.date === s.date) { // 过了午夜还在刷同一轮：照旧往前走，词组第二天打开时才换
       const i = set.miss.indexOf(id);
       if (res === 'y') { if (i >= 0) set.miss.splice(i, 1); } else if (i < 0) set.miss.push(id);
-      if (++set.pos >= set.order.length) {
-        set.order = set.next || passOrder(set.ids, this.byId, this.rng);
-        set.next = null; set.pos = 0; set.pass++;
-      }
+      if (first && !(id in set.first)) set.first[id] = res !== 'y' ? 'n' : fast ? 'y' : 's';
+      set.run[id] = fast ? (set.run[id] || 0) + 1 : 0;
+      if (set.run[id] >= CONFIG.gradStreak && !set.grad.includes(id)) set.grad.push(id);
     }
-    const ev = this._event('flash', id, res, tm || {}, before);
+    if (res !== 'y' && !isRq) this._requeue(s, id, k);
+    const ev = this._event('flash', id, res, tm, before);
+    if (isRq) ev.requeue = true;
     s.shown++; this._day(ev.t).fc++;
+    if (set && !isRq && set.order[set.pos] === id && ++set.pos >= set.order.length) this._newPass(set);
     this._commit({ events: [ev], boxes: { [id]: entry }, state: this.S });
     return ev;
   }
+  leechOf(id) { const e = this.boxes[id]; return (e && e[5]) || 0; }
+  isLeech(id) { return this.leechOf(id) >= CONFIG.leechAt; }
   endRound() { this._closeOpen(this.now()); }
 
   /* ---- 学新词 ---- */
@@ -628,13 +840,18 @@ class Engine {
     const e = this.boxes[id] || [0, 0, 0, 0], before = e[0], D = dayNum(this.now());
     const nb = res === 'y' ? 1 : 0;
     if (res === 'y') p.qy = (p.qy || 0) + 1;
-    const entry = [nb, D + CONFIG.dayInterval[nb], e[2] + 1, res === 'y' ? D : (e[3] || 0)];
+    // 第 5 项记成今天：今天学的词，格由小测定，当天的快闪不算「当天首见」（不改格、不加顽固计数）
+    const entry = [nb, D + CONFIG.dayInterval[nb], e[2] + 1, res === 'y' ? D : (e[3] || 0), D, e[5] || 0];
     this.boxes[id] = entry;
     if (!this.learnedSet.has(id)) { this.learnedSet.add(id); this.S.learned.push(id); }
     const ev = this._event('quiz', id, res, tm || {}, before);
     this._day(ev.t).nl++;
     if (res !== 'y') p.redo.push(id);
-    if (!p.quiz.length) p.phase = p.i < p.ids.length ? 'card' : (p.redo.length ? 'redo' : 'done');
+    if (!p.quiz.length) {
+      p.phase = p.i < p.ids.length ? 'card' : (p.redo.length ? 'redo' : 'done');
+      const G = CONFIG.groupSize, from = Math.floor((p.i - 1) / G) * G; // v2：这组 10 个当天就进快闪（下一轮见到）
+      this._insertNew(this.daySet(), p.ids.slice(from, p.i).filter(x => this.learnedSet.has(x)));
+    }
     this._commit({ events: [ev], boxes: { [id]: entry }, state: this.S });
     return ev;
   }
@@ -697,13 +914,16 @@ class Engine {
     const S = newState(dev);
     S.round = st.round || 0; S.learned = Array.isArray(st.learned) ? st.learned.slice() : [];
     S.packs = st.packs && typeof st.packs === 'object' ? st.packs : {}; S.days = st.days && typeof st.days === 'object' ? st.days : {};
-    S.set = st.set && typeof st.set === 'object' && Array.isArray(st.set.ids) ? st.set : null;
+    const v1 = !(st.set && st.set.first); // 导入的是 v1 的进度（normSet 会补上 first，先记下）
+    S.set = normSet(st.set);
     S.seq = maxSeq; S.rid = maxRid; S.devStart = maxSeq + 1; S.ridStart = maxRid + 1;
     S.exported = { seq: maxSeq, rid: maxRid }; S.from = { device: obj.device || '', type: obj.type, toSeq: maxSeq };
     await this.store.replaceAll({ events: events, rounds: rounds, boxes: st.boxes, state: S });
     this.pending = []; this.bad = false;
     const snap = await this.store.load();
     this.S = Object.assign(newState(), snap.state); this.boxes = snap.boxes; this.learnedSet = new Set(this.S.learned);
+    this.S.set = normSet(this.S.set);
+    if (v1) await this._markSeenToday(); // 同 init
     return { events: events.length, words: Object.keys(this.boxes).length, learned: this.S.learned.length, type: obj.type };
   }
   importFull(obj) { return this.importFile(obj); }
@@ -808,7 +1028,7 @@ async function decryptWords(buf, auth) {
   return { json: JSON.parse(text), auth: { pw: auth.pw || '', salt: saltHex, key: hex(keyRaw) } };
 }
 
-const FC = { openStore: null, CONFIG, mulberry32, shuffle, localDate, dayNum, fileStamp, newState, normAdjust, effDue, buildDaySet, passOrder, pickPack,
+const FC = { openStore: null, CONFIG, mulberry32, shuffle, localDate, dayNum, fileStamp, newState, normAdjust, effDue, buildDaySet, buildExamSet, passOrder, passWithWrongs, normSet, pickPack,
   MemStore, Engine, Uploader, b64utf8, decryptWords, clone };
 if (typeof module !== 'undefined' && module.exports) module.exports = FC;
 root.FC = FC;
@@ -819,7 +1039,7 @@ root.FC = FC;
 /* ===== 页面。所有动态内容都用 textContent / 建节点写入，不拼 HTML 字符串 ===== */
 (function () {
 'use strict';
-const BUILD = '1122-1917';
+const BUILD = '1122-2015';
 const CONFIG = FC.CONFIG;
 const $ = id => document.getElementById(id);
 function el(tag, cls, ...kids) {
@@ -1076,6 +1296,7 @@ function fShow() {
   $('f-rd').textContent = readingOf(w) + (w.acc ? ' ' + w.acc : '');
   $('f-ps').textContent = w.pos || '';
   $('f-m1').textContent = w.m1 || w.m || '';
+  $('f-hint').textContent = eng.isLeech(id) ? (w.hint || (w.rel && w.rel[0]) || '') : ''; // 顽固词：翻面多一行记忆提示
   $('f-pos').textContent = F.label();
   fAns.classList.add('off');
   fBar.className = ''; void fBar.offsetWidth;
@@ -1188,7 +1409,7 @@ function startLearn() {
 function learnDone(status, pack) {
   $('ld-title').textContent = status === 'stopped' ? '新词停了' : status === 'empty' ? '新词全部学过了' : '今天的新词学完了';
   $('ld-msg').textContent = status === 'stopped' ? '考前这几天专心快闪复习。' : status === 'empty' ? '接下来靠快闪复习巩固。' :
-    '今天这包 ' + (pack ? pack.ids.length : 0) + ' 个都过了一遍，明天的快闪词组里会有它们。';
+    '今天这包 ' + (pack ? pack.ids.length : 0) + ' 个都过了一遍，接下来的快闪里就会出现它们。';
   show('ldone');
 }
 function lRender() {
