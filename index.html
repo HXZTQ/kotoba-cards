@@ -261,6 +261,7 @@ const CONFIG = {
   tapGuardMs: 200,          // 出词后这么多毫秒内的点按不算提前翻（防连点）
   learnGuardMs: 400,        // 详卡出来后这么多毫秒内「下一个」不响应（防连点）
   adjustTimeoutMs: 3000,    // 进首页前拉 adjust.json 最多等多久，超时用上次存的
+  uploadTimeoutMs: 15000,   // 自动上传一次最多等多久，超时算失败、下次再补
   pbkdf2Iter: 200000
 };
 
@@ -646,18 +647,22 @@ class Engine {
     return clone({ boxes: this.boxes, round: S.round, learned: S.learned, packs: S.packs, set: S.set,
       days: S.days, seq: S.seq, rid: S.rid, exported: S.exported, devStart: S.devStart, ridStart: S.ridStart });
   }
-  /* 交记录：从上次确认发出的位置导到现在。指针不动，她点「我已经存好了」（confirmExport）才往前推 */
-  async exportInc() {
+  /* 增量记录：事件从 fromSeq、每轮记录从 fromRid 到现在。交记录和自动上传共用，各管各的指针 */
+  async incRange(fromSeq, fromRid) {
     await this.flush();
-    const ex = this.S.exported, from = ex.seq + 1;
-    const events = await this._list('events', from), rounds = await this._list('rounds', ex.rid + 1);
-    const toSeq = events.length ? events[events.length - 1].seq : from - 1;
-    const toRid = rounds.length ? rounds[rounds.length - 1].rid : ex.rid;
+    const events = await this._list('events', fromSeq), rounds = await this._list('rounds', fromRid);
+    const toSeq = events.length ? events[events.length - 1].seq : fromSeq - 1;
+    const toRid = rounds.length ? rounds[rounds.length - 1].rid : fromRid - 1;
     const t = this.now();
     const obj = { type: 'inc', device: this.S.device, exportedAt: new Date(t).toISOString(),
-      fromSeq: from, toSeq: toSeq, events: events, rounds: rounds,
+      fromSeq: fromSeq, toSeq: toSeq, events: events, rounds: rounds,
       round: this.S.round, wordsVersion: this.wordsVersion, adjustVersion: this.adj.version, state: this._snapshot() };
-    return { obj: obj, name: '闪卡记录_' + fileStamp(t) + '.json', toSeq: toSeq, toRid: toRid };
+    return { obj: obj, t: t, toSeq: toSeq, toRid: toRid };
+  }
+  /* 交记录：从上次确认发出的位置导到现在。指针不动，她点「我已经存好了」（confirmExport）才往前推 */
+  async exportInc() {
+    const ex = this.S.exported, r = await this.incRange(ex.seq + 1, ex.rid + 1);
+    return { obj: r.obj, name: '闪卡记录_' + fileStamp(r.t) + '.json', toSeq: r.toSeq, toRid: r.toRid };
   }
   confirmExport(out) {
     const ex = this.S.exported;
@@ -704,6 +709,78 @@ class Engine {
   importFull(obj) { return this.importFile(obj); }
 }
 
+/* ---- 自动上传：每次把上传指针（kv 'upSeq'，和交记录的 exported 互不相干）之后的增量 PUT 到 GitHub 仓库 inbox/。
+   同一时间只跑一个；201 或 422（同名文件已在，上次其实传上了）推进指针，其他都不推、下次再补。钥匙不进日志、不进导出文件 ---- */
+function b64utf8(s) {
+  const u8 = new TextEncoder().encode(s);
+  let bin = '';
+  for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  return root.btoa(bin);
+}
+const UP_KEY = 'upSeq';
+class Uploader {
+  constructor(eng, cfg, opts) {
+    opts = opts || {};
+    this.eng = eng; this.repo = cfg.repo; this.token = cfg.token;
+    this.fetch = opts.fetch || ((u, o) => root.fetch(u, o));
+    this.kvGet = opts.kvGet || (k => eng.store.kvGet(k));
+    this.kvSet = opts.kvSet || ((k, v) => eng.store.kvSet(k, v));
+    this.now = opts.now || (() => Date.now());
+    this.timeoutMs = opts.timeoutMs || CONFIG.uploadTimeoutMs;
+    this.ptr = null; this.busy = null; this.err = ''; // err：'' / 'fail' / 'auth'（401、403 钥匙失效）
+  }
+  async _ptr() {
+    if (!this.ptr) {
+      let v = null; try { v = await this.kvGet(UP_KEY); } catch (e) {}
+      this.ptr = { seq: (v && v.seq) || 0, rid: (v && v.rid) || 0, at: (v && v.at) || 0 };
+    }
+    return this.ptr;
+  }
+  pending() { // 还有几条事件没上传（导入进来的旧记录不算）
+    const S = this.eng.S, p = this.ptr || { seq: 0 };
+    return Math.max(0, S.seq - Math.max(p.seq, S.devStart - 1));
+  }
+  status() { return { pending: this.pending(), err: this.err, at: this.ptr ? this.ptr.at : 0, busy: !!this.busy }; }
+  run() { // 不会抛错；返回 'ok' / 'none' / 'fail' / 'auth'
+    if (this.busy) return this.busy;
+    this.busy = this._run().catch(() => { this.err = this.err === 'auth' ? 'auth' : 'fail'; return 'fail'; })
+      .finally(() => { this.busy = null; });
+    return this.busy;
+  }
+  async _run() {
+    const p = await this._ptr(), S = this.eng.S;
+    const fromSeq = Math.max(p.seq + 1, S.devStart), fromRid = Math.max(p.rid + 1, S.ridStart);
+    const r = await this.eng.incRange(fromSeq, fromRid);
+    if (!r.obj.events.length && !r.obj.rounds.length) return 'none';
+    const name = r.obj.device + '_' + fromSeq + '-' + r.toSeq + '_r' + r.toRid + '.json';
+    const path = 'inbox/' + encodeURIComponent(name);
+    let st = await this._put(path, JSON.stringify(r.obj));
+    // 422 可能是同名文件已在（上次其实传上了），也可能是别的校验失败：核实远端真有这个文件才算成功
+    if (st === 422) st = (await this._req('GET', path)) === 200 ? 201 : 'fail';
+    if (st === 201) {
+      this.ptr = { seq: Math.max(p.seq, r.toSeq), rid: Math.max(p.rid, r.toRid), at: this.now() };
+      this.err = '';
+      try { await this.kvSet(UP_KEY, this.ptr); } catch (e) {}
+      return 'ok';
+    }
+    this.err = st === 401 || st === 403 ? 'auth' : 'fail';
+    return this.err;
+  }
+  _put(path, text) { return this._req('PUT', path, JSON.stringify({ message: 'rec', content: b64utf8(text) })); }
+  async _req(method, path, body) {
+    const ac = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    let tm = 0;
+    const late = new Promise((_, no) => { tm = setTimeout(() => { if (ac) ac.abort(); no(new Error('timeout')); }, this.timeoutMs); });
+    const req = Promise.resolve().then(() => this.fetch('https://api.github.com/repos/' + this.repo + '/contents/' + path, {
+      method: method, signal: ac ? ac.signal : undefined, cache: 'no-store',
+      headers: { 'Authorization': 'Bearer ' + this.token, 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json' },
+      body: body }));
+    req.catch(() => {});
+    try { return (await Promise.race([req, late])).status; }
+    finally { clearTimeout(tm); }
+  }
+}
+
 /* ---- 解密 words.enc：'FCW1' | 标志(1 字节, bit0=gzip) | salt(16) | iv(12) | 密文+tag ---- */
 const hex = u8 => Array.from(u8, b => b.toString(16).padStart(2, '0')).join('');
 const unhex = s => new Uint8Array((s.match(/../g) || []).map(h => parseInt(h, 16)));
@@ -732,7 +809,7 @@ async function decryptWords(buf, auth) {
 }
 
 const FC = { openStore: null, CONFIG, mulberry32, shuffle, localDate, dayNum, fileStamp, newState, normAdjust, effDue, buildDaySet, passOrder, pickPack,
-  MemStore, Engine, decryptWords, clone };
+  MemStore, Engine, Uploader, b64utf8, decryptWords, clone };
 if (typeof module !== 'undefined' && module.exports) module.exports = FC;
 root.FC = FC;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
@@ -742,7 +819,7 @@ root.FC = FC;
 /* ===== 页面。所有动态内容都用 textContent / 建节点写入，不拼 HTML 字符串 ===== */
 (function () {
 'use strict';
-const BUILD = '1122-1629';
+const BUILD = '1122-1654';
 const CONFIG = FC.CONFIG;
 const $ = id => document.getElementById(id);
 function el(tag, cls, ...kids) {
@@ -756,7 +833,7 @@ const isWx = /MicroMessenger/i.test(ua);
 const isIOS = /iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const isAndroid = /Android/i.test(ua);
 const standalone = navigator.standalone === true || !!(window.matchMedia && matchMedia('(display-mode: standalone)').matches);
-let store, eng, ui = {}, encBuf = null, cur = 'load', storeDown = false, adjDay = '';
+let store, eng, ui = {}, encBuf = null, cur = 'load', storeDown = false, adjDay = '', up = null;
 
 function show(name) {
   cur = name;
@@ -898,6 +975,8 @@ async function unlock(pw) {
     try {
       const r = await FC.decryptWords(encBuf, tries[i]);
       eng.setWords(r.json);
+      const u = r.json.upload; // 自动上传：钥匙只在解密后的词表里，不另存
+      up = u && u.repo && u.token ? new FC.Uploader(eng, u, { kvGet: kvGet, kvSet: kvSet }) : null;
       await kvSet('auth', r.auth);
       return startApp();
     } catch (e) {
@@ -917,7 +996,21 @@ async function startApp() {
   eng.setAdjust(await kvGet('adjust'));
   await refreshAdjust();
   home();
+  autoUp();
 }
+/* 自动上传：页面打开、每轮快闪结束、学新词退出、回到前台时各试一次；失败不出声，下次再补 */
+function autoUp() {
+  if (!up || storeDown) return;
+  if (cur === 'home') upLine();
+  up.run().then(() => { if (cur === 'home') upLine(); });
+}
+function upLine() {
+  const s = up.status(), d = new Date(s.at), p2 = n => String(n).padStart(2, '0'), hm = s.at ? ' · ' + p2(d.getHours()) + ':' + p2(d.getMinutes()) : '';
+  $('h-unsent').textContent = s.err === 'auth' ? '自动上传失效，请用交记录' :
+    s.pending > 0 ? '还有 ' + s.pending + ' 条没上传，联网后自动补' : '记录已自动上传' + hm;
+}
+const endLearn = () => { eng.endLearn(); autoUp(); };
+document.addEventListener('visibilitychange', () => { if (!document.hidden) autoUp(); });
 /* 当天第一次进首页（或第一次开始刷）前先拉 adjust.json，最多等 adjustTimeoutMs，拉不到用上次存的；拉完再定当天词组和新词包 */
 async function refreshAdjust() {
   adjDay = FC.localDate(Date.now());
@@ -955,6 +1048,7 @@ function home() {
     li.status === 'empty' ? '新词全部学过了' : '今天一包 ' + li.total + ' 个，每 ' + CONFIG.groupSize + ' 个小测一次';
   const un = eng.unsent();
   $('h-unsent').textContent = un > 0 ? '还有 ' + un + ' 条没交' : '记录都交过了';
+  if (up) upLine(); // 开了自动上传：这一行改报上传状态（交记录照旧能用）
   $('h-flash').disabled = $('h-learn').disabled = !!blocked();
   $('h-ver').textContent = '版本 ' + BUILD + ' · 词表 ' + (eng.wordsVersion || '-') + ' · 调整 ' + (eng.adj.version || '-');
   $('h-ios').hidden = !(isIOS && !standalone);
@@ -1052,7 +1146,7 @@ function startFlash() {
   F.autoMiss = true;
   F.label = () => '第 ' + (fs.shown + 1) + ' / ' + fs.limit + ' 张';
   F.toN = 0;
-  F.done = F.exit = () => { eng.endRound(); if (fs.shown) result(); else home(); };
+  F.done = F.exit = () => { eng.endRound(); autoUp(); if (fs.shown) result(); else home(); };
   show('flash'); fShow();
 }
 function result() {
@@ -1099,7 +1193,7 @@ function learnDone(status, pack) {
 }
 function lRender() {
   const v = eng.learnView(ls);
-  if (v.phase === 'done') { eng.endLearn(); return learnDone('done', ls.pack); }
+  if (v.phase === 'done') { endLearn(); return learnDone('done', ls.pack); }
   if (v.phase === 'quiz') {
     const p = ls.pack;
     F.next = () => (p.phase === 'quiz' && p.quiz.length ? p.quiz[0] : null);
@@ -1107,7 +1201,7 @@ function lRender() {
     F.autoMiss = CONFIG.autoMissQuiz;
     F.label = () => '小测 ' + (p.qn - p.quiz.length + 1) + ' / ' + p.qn;
     F.done = () => quizSum(p);
-    F.exit = () => { eng.endLearn(); home(); };
+    F.exit = () => { endLearn(); home(); };
     F.toN = 0;
     show('flash'); return fShow();
   }
@@ -1135,7 +1229,7 @@ $('l-next').onclick = () => {
   eng.learnNext(ls, dt);
   if (cur === 'learn') lRender();
 };
-$('l-exit').onclick = () => { eng.endLearn(); home(); };
+$('l-exit').onclick = () => { endLearn(); home(); };
 $('ld-flash').onclick = startFlash;
 $('ld-home').onclick = home;
 
