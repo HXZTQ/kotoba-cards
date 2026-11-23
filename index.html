@@ -340,7 +340,8 @@ function normAdjust(a) {
     stopNewAfter: typeof a.stopNewAfter === 'string' ? a.stopNewAfter : CONFIG.stopNewAfter,
     nextPacks: Array.isArray(a.nextPacks) ? a.nextPacks.filter(Array.isArray) : [],
     boost: new Set(Array.isArray(a.boost) ? a.boost.map(String) : []),
-    slow: new Set(Array.isArray(a.slow) ? a.slow.map(String) : [])
+    slow: new Set(Array.isArray(a.slow) ? a.slow.map(String) : []),
+    focus: Array.isArray(a.focus) && a.focus.length ? new Set(a.focus.map(String)) : null // 11-23：有就只在这批词里排词组和新词
   };
 }
 
@@ -531,7 +532,13 @@ class Engine {
     this.words = json.words || []; this.wordsVersion = json.version || '';
     this.byId = new Map(this.words.map(w => [w.id, w]));
   }
-  setAdjust(a) { this.adj = normAdjust(a); }
+  setAdjust(a) { this.adj = normAdjust(a); this._pwc = null; }
+  _pw() { // 排词用的词表：adjust.focus 有就只用这批，没有就全表
+    const f = this.adj && this.adj.focus;
+    if (!f) return this.words;
+    if (!this._pwc || this._pwc.f !== f || this._pwc.w !== this.words) this._pwc = { f, w: this.words, list: this.words.filter(w => f.has(w.id)) };
+    return this._pwc.list;
+  }
   flush() { return this.tail; }
   /* 写存储：排队按顺序写；一条写失败就停住（这条和后面的都留在 pending 里，不跳过），报 onError，等 retry() */
   _commit(w) { this.pending.push(w); if (!this.bad) this._drain(); }
@@ -600,7 +607,7 @@ class Engine {
       for (const id of this.S.packs[d].ids) if (this.learnedSet.has(id)) recent.push(id);
     }
     const exam = !!this.adj.stopNewAfter && date > this.adj.stopNewAfter;
-    const r = (exam ? buildExamSet : buildDaySet)(this.words, this.boxes, this.adj, this.learnedSet, dayNum(t), recent, old ? old.miss : []);
+    const r = (exam ? buildExamSet : buildDaySet)(this._pw(), this.boxes, this.adj, this.learnedSet, dayNum(t), recent, old ? old.miss : []);
     const set = this.S.set = normSet({ date, ids: r.ids, comp: r.comp, order: passOrder(r.ids, this.byId, this.rng),
       pos: 0, pass: 1, next: null, miss: [], prev: prevDate });
     if (exam) set.exam = true;
@@ -675,7 +682,7 @@ class Engine {
       if (pk) for (const id of pk.ids) if (this.learnedSet.has(id)) push(id);
       const byTS = (a, b) => (a.tier - b.tier) || (b.score - a.score) || (a.id < b.id ? -1 : 1);
       const due = [], fresh = [];
-      for (const w of this.words) {
+      for (const w of this._pw()) {
         if (have.has(w.id) || (w.pool === 'new' && !this.learnedSet.has(w.id))) continue;
         const e = this.boxes[w.id];
         if (!e) { if (w.pool !== 'new') fresh.push(w); continue; }
@@ -791,7 +798,7 @@ class Engine {
     const t = this.now(), date = localDate(t);
     let pack = this.S.packs[date];
     if (!pack) {
-      const p = pickPack(this.words, this.byId, this.learnedSet, this.adj, date, this.rng);
+      const p = pickPack(this._pw(), this.byId, this.learnedSet, this.adj, date, this.rng);
       if (p.status !== 'ok') return { status: p.status };
       pack = this.S.packs[date] = { ids: p.ids, src: p.src, i: 0, quiz: [], qn: 0, redo: [], ri: 0, phase: 'card' };
     }
@@ -804,7 +811,7 @@ class Engine {
     const date = localDate(this.now()), pack = this.S.packs[date];
     if (pack) return { has: true, total: pack.ids.length, done: pack.phase === 'done',
       learned: pack.ids.filter(id => this.learnedSet.has(id)).length };
-    const p = pickPack(this.words, this.byId, this.learnedSet, this.adj, date, () => 0.5);
+    const p = pickPack(this._pw(), this.byId, this.learnedSet, this.adj, date, () => 0.5);
     return { has: false, status: p.status, total: p.ids ? p.ids.length : 0, learned: 0, done: false };
   }
   learnView(ls) {
@@ -1039,7 +1046,7 @@ root.FC = FC;
 /* ===== 页面。所有动态内容都用 textContent / 建节点写入，不拼 HTML 字符串 ===== */
 (function () {
 'use strict';
-const BUILD = '1122-2015';
+const BUILD = '1123-2014';
 const CONFIG = FC.CONFIG;
 const $ = id => document.getElementById(id);
 function el(tag, cls, ...kids) {
